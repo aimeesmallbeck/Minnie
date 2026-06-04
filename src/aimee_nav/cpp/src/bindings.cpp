@@ -9,6 +9,8 @@
 #include "aimee_nav_core/pose_graph.hpp"
 #include "aimee_nav_core/global_planner.hpp"
 #include "aimee_nav_core/dwa_local_planner.hpp"
+#include "aimee_nav_core/mcl_2d.hpp"
+#include "aimee_nav_core/frontier_detector.hpp"
 
 namespace py = pybind11;
 using namespace aimee_nav_core;
@@ -154,6 +156,55 @@ PYBIND11_MODULE(_core, m) {
         .def("plan", &GlobalPlanner::plan,
              py::arg("map"), py::arg("start_x"), py::arg("start_y"),
              py::arg("goal_x"), py::arg("goal_y"));
+
+    // MCL2D / Particle
+    py::class_<Particle>(m, "Particle")
+        .def_readwrite("x", &Particle::x)
+        .def_readwrite("y", &Particle::y)
+        .def_readwrite("theta", &Particle::theta)
+        .def_readwrite("weight", &Particle::weight);
+
+    py::class_<MCL2D>(m, "MCL2D")
+        .def(py::init<>())
+        .def("global_localization", &MCL2D::global_localization,
+             py::arg("map"), py::arg("max_particles") = 2000)
+        .def("set_initial_pose", &MCL2D::set_initial_pose,
+             py::arg("x"), py::arg("y"), py::arg("theta"),
+             py::arg("xy_variance"), py::arg("theta_variance"),
+             py::arg("num_particles") = 500)
+        .def("predict", &MCL2D::predict, py::arg("v"), py::arg("w"), py::arg("dt"))
+        .def("update", &MCL2D::update,
+             py::arg("ranges"), py::arg("angle_min"), py::arg("angle_increment"),
+             py::arg("range_min"), py::arg("range_max"))
+        .def("get_pose", &MCL2D::get_pose)
+        .def("get_covariance", &MCL2D::get_covariance)
+        .def("is_converged", &MCL2D::is_converged,
+             py::arg("position_tolerance_m") = 0.3f,
+             py::arg("angle_tolerance_rad") = 0.3f)
+        .def("particles", &MCL2D::particles, py::return_value_policy::reference_internal)
+        .def("set_motion_noise", &MCL2D::set_motion_noise,
+             py::arg("alpha1"), py::arg("alpha2"), py::arg("alpha3"), py::arg("alpha4"))
+        .def("set_min_max_particles", &MCL2D::set_min_max_particles,
+             py::arg("min_p"), py::arg("max_p"))
+        .def("set_kld_epsilon", &MCL2D::set_kld_epsilon, py::arg("eps"));
+
+    // FrontierDetector / FrontierCluster
+    py::class_<FrontierCluster>(m, "FrontierCluster")
+        .def_readwrite("cx", &FrontierCluster::cx)
+        .def_readwrite("cy", &FrontierCluster::cy)
+        .def_readwrite("size", &FrontierCluster::size)
+        .def_readwrite("min_x", &FrontierCluster::min_x)
+        .def_readwrite("max_x", &FrontierCluster::max_x)
+        .def_readwrite("min_y", &FrontierCluster::min_y)
+        .def_readwrite("max_y", &FrontierCluster::max_y);
+
+    py::class_<FrontierDetector>(m, "FrontierDetector")
+        .def(py::init<>())
+        .def("initialize", &FrontierDetector::initialize, py::arg("map"))
+        .def("on_cell_changed", &FrontierDetector::on_cell_changed, py::arg("gx"), py::arg("gy"))
+        .def("on_cells_changed", &FrontierDetector::on_cells_changed, py::arg("cells"))
+        .def("get_clusters", &FrontierDetector::get_clusters, py::arg("min_size_cells"))
+        .def("clear", &FrontierDetector::clear);
 
     // DWALocalPlanner / DWAConfig
     py::class_<DWAConfig>(m, "DWAConfig")

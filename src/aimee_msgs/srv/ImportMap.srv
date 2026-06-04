@@ -1,0 +1,8 @@
+string map_id       # Target ID for imported map
+string pgm_path     # Path to PGM file
+string yaml_path    # Path to YAML file
+string name         # Human-readable name
+string description  # Optional description
+---
+bool success
+string message

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIMEE Map Console</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #1a1a2e;
+            --bg-panel: #16213e;
+            --bg-card: #0f3460;
+            --accent: #e94560;
+            --accent-green: #00d9ff;
+            --text: #eaeaea;
+            --text-muted: #a0a0a0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        header {
+            background: var(--bg-panel);
+            padding: 0.6rem 1rem;
+            border-bottom: 2px solid var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        header h1 { font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem; }
+        header h1::before { content: "🗺️"; }
+        .controls { display: flex; align-items: center; gap: 0.75rem; }
+        .controls label { font-size: 0.85rem; color: var(--text-muted); }
+        .controls input[type="range"] { width: 80px; }
+        .controls button {
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--accent);
+            padding: 0.3rem 0.7rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .controls button.active { background: var(--accent); color: white; }
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            overflow: hidden;
+        }
+        @media (max-width: 900px) {
+            main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+        }
+        .sidebar {
+            background: var(--bg-panel);
+            border-radius: 6px;
+            padding: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            overflow-y: auto;
+        }
+        .sidebar h3 { font-size: 0.95rem; border-bottom: 1px solid var(--bg-card); padding-bottom: 0.3rem; }
+        .section { display: flex; flex-direction: column; gap: 0.4rem; }
+        .section label { font-size: 0.8rem; color: var(--text-muted); }
+        .section input, .section select {
+            background: var(--bg-dark);
+            color: var(--text);
+            border: 1px solid var(--bg-card);
+            padding: 0.35rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+        .section button {
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--accent-green);
+            padding: 0.4rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .section button.danger { border-color: var(--accent); }
+        .section button:hover { filter: brightness(1.2); }
+        .map-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; }
+        .map-item {
+            background: var(--bg-dark);
+            padding: 0.4rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .map-item:hover { background: var(--bg-card); }
+        .map-item.active { border-left: 3px solid var(--accent-green); }
+        .map-item .actions { display: flex; gap: 0.3rem; }
+        .map-item .actions button {
+            padding: 0.15rem 0.35rem;
+            font-size: 0.7rem;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            background: var(--bg-card);
+        }
+        .status-badge.exploring { background: #28a745; color: white; }
+        .status-badge.idle { background: #6c757d; }
+        .viewer {
+            background: var(--bg-panel);
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .viewer img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            image-rendering: pixelated;
+        }
+        .pose-overlay {
+            position: absolute;
+            bottom: 0.5rem;
+            left: 0.5rem;
+            background: rgba(0,0,0,0.7);
+            padding: 0.4rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            pointer-events: none;
+        }
+        .toast {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            background: var(--bg-card);
+            padding: 0.6rem 1rem;
+            border-radius: 6px;
+            border-left: 3px solid var(--accent-green);
+            font-size: 0.85rem;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+        .toast.error { border-left-color: var(--accent); }
+        .hidden { opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AIMEE Map Console</h1>
+        <div class="controls">
+            <label>Auto-update</label>
+            <input type="checkbox" id="autoUpdate" checked>
+            <label>Interval</label>
+            <input type="range" id="updateInterval" min="5" max="30" value="10">
+            <span id="intervalVal" style="font-size:0.8rem;min-width:2rem;">10s</span>
+            <button onclick="refreshMap()">🔄 Refresh</button>
+            <button onclick="location.href='/'">⬅ Dashboard</button>
+        </div>
+    </header>
+    <main>
+        <aside class="sidebar">
+            <div class="section">
+                <h3>🤖 Robot</h3>
+                <div id="robotPose">Pose: —</div>
+                <div id="exploreStatus">Exploration: <span class="status-badge idle">idle</span></div>
+            </div>
+
+            <div class="section">
+                <h3>🧭 Exploration</h3>
+                <button onclick="startExploration()">▶ Start Exploration</button>
+                <button class="danger" onclick="stopExploration()">⏹ Stop</button>
+            </div>
+
+            <div class="section">
+                <h3>💾 Active Map</h3>
+                <label>Map name</label>
+                <input type="text" id="saveMapName" placeholder="e.g. home">
+                <label>Description</label>
+                <input type="text" id="saveMapDesc" placeholder="Optional">
+                <button onclick="saveMap()">💾 Save Current Map</button>
+                <label>Set location</label>
+                <input type="text" id="locationInput" placeholder="e.g. home">
+                <button onclick="setLocation()">📍 Load & Localize</button>
+            </div>
+
+            <div class="section">
+                <h3>📚 Map Library</h3>
+                <button onclick="loadMapList()" style="font-size:0.8rem;">🔄 Refresh List</button>
+                <div class="map-list" id="mapList"></div>
+            </div>
+        </aside>
+
+        <section class="viewer" id="viewer">
+            <img id="mapImage" src="" alt="Map">
+            <div class="pose-overlay" id="poseOverlay">x: —, y: —, θ: —</div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script>
+        let autoUpdate = true;
+        let updateTimer = null;
+        let updateInterval = 10;
+
+        document.getElementById('autoUpdate').addEventListener('change', e => {
+            autoUpdate = e.target.checked;
+            scheduleUpdate();
+        });
+        document.getElementById('updateInterval').addEventListener('input', e => {
+            updateInterval = parseInt(e.target.value);
+            document.getElementById('intervalVal').textContent = updateInterval + 's';
+            scheduleUpdate();
+        });
+
+        function showToast(msg, isError) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.toggle('error', !!isError);
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
+        }
+
+        function refreshMap() {
+            const img = document.getElementById('mapImage');
+            img.src = '/api/map/image.png?ts=' + Date.now();
+            fetchPose();
+            fetchExploreStatus();
+        }
+
+        function scheduleUpdate() {
+            if (updateTimer) clearInterval(updateTimer);
+            if (autoUpdate) {
+                updateTimer = setInterval(refreshMap, updateInterval * 1000);
+            }
+        }
+
+        async function fetchPose() {
+            try {
+                const r = await fetch('/api/map/pose');
+                const d = await r.json();
+                const deg = (d.theta * 180 / Math.PI).toFixed(1);
+                document.getElementById('robotPose').textContent =
+                    `Pose: x=${d.x.toFixed(2)} y=${d.y.toFixed(2)} θ=${deg}°`;
+                document.getElementById('poseOverlay').textContent =
+                    `x:${d.x.toFixed(2)} y:${d.y.toFixed(2)} θ:${deg}°`;
+            } catch (e) {}
+        }
+
+        async function fetchExploreStatus() {
+            try {
+                const r = await fetch('/api/exploration/status');
+                const d = await r.json();
+                const badge = document.getElementById('exploreStatus').querySelector('.status-badge');
+                badge.textContent = d.active ? 'exploring' : 'idle';
+                badge.className = 'status-badge ' + (d.active ? 'exploring' : 'idle');
+            } catch (e) {}
+        }
+
+        async function loadMapList() {
+            try {
+                const r = await fetch('/api/maps');
+                const d = await r.json();
+                const list = document.getElementById('mapList');
+                list.innerHTML = '';
+                d.maps.forEach(m => {
+                    const el = document.createElement('div');
+                    el.className = 'map-item';
+                    el.innerHTML = `<span>${m.name}</span>
+                        <div class="actions">
+                            <button onclick="event.stopPropagation();loadMap('${m.id}')">Load</button>
+                            <button onclick="event.stopPropagation();deleteMap('${m.id}')">🗑</button>
+                        </div>`;
+                    el.onclick = () => loadMap(m.id);
+                    list.appendChild(el);
+                });
+            } catch (e) {
+                showToast('Failed to load map list', true);
+            }
+        }
+
+        async function saveMap() {
+            const id = document.getElementById('saveMapName').value.trim();
+            const desc = document.getElementById('saveMapDesc').value.trim();
+            if (!id) { showToast('Map name required', true); return; }
+            try {
+                const r = await fetch('/api/maps', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({map_id: id, name: id, description: desc})
+                });
+                const d = await r.json();
+                showToast(d.message, !d.success);
+                if (d.success) loadMapList();
+            } catch (e) { showToast('Save failed', true); }
+        }
+
+        async function loadMap(id) {
+            try {
+                const r = await fetch('/api/maps/' + encodeURIComponent(id) + '/load', {method: 'POST'});
+                const d = await r.json();
+                showToast(d.message, !d.success);
+            } catch (e) { showToast('Load failed', true); }
+        }
+
+        async function deleteMap(id) {
+            if (!confirm('Delete map "' + id + '"?')) return;
+            try {
+                const r = await fetch('/api/maps/' + encodeURIComponent(id), {method: 'DELETE'});
+                const d = await r.json();
+                showToast(d.message, !d.success);
+                if (d.success) loadMapList();
+            } catch (e) { showToast('Delete failed', true); }
+        }
+
+        async function setLocation() {
+            const loc = document.getElementById('locationInput').value.trim();
+            if (!loc) { showToast('Location name required', true); return; }
+            try {
+                const r = await fetch('/api/location', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({location: loc})
+                });
+                const d = await r.json();
+                showToast(d.message, !d.success);
+            } catch (e) { showToast('Set location failed', true); }
+        }
+
+        async function startExploration() {
+            try {
+                const r = await fetch('/api/exploration/start', {method: 'POST'});
+                const d = await r.json();
+                showToast(d.message, !d.success);
+                fetchExploreStatus();
+            } catch (e) { showToast('Start failed', true); }
+        }
+
+        async function stopExploration() {
+            try {
+                const r = await fetch('/api/exploration/stop', {method: 'POST'});
+                const d = await r.json();
+                showToast(d.message, !d.success);
+                fetchExploreStatus();
+            } catch (e) { showToast('Stop failed', true); }
+        }
+
+        // Init
+        loadMapList();
+        refreshMap();
+        scheduleUpdate();
+    </script>
+</body>
+</html>

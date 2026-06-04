@@ -1,0 +1,7 @@
+string map_id       # Unique ID (e.g., "home")
+string name         # Human-readable name
+string description  # Optional description
+bool auto_localize  # Enable localization mode after save
+---
+bool success
+string message

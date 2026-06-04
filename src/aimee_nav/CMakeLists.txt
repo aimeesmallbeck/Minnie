@@ -26,6 +26,8 @@ pybind11_add_module(_core
   cpp/src/global_planner.cpp
   cpp/src/dwa_local_planner.cpp
   cpp/src/math_utils.cpp
+  cpp/src/mcl_2d.cpp
+  cpp/src/frontier_detector.cpp
 )
 
 target_include_directories(_core PRIVATE
@@ -52,6 +54,12 @@ install(PROGRAMS
   scripts/save_map.py
   scripts/load_map.py
   scripts/test_motion.py
+  scripts/test_point_base.py
+  scripts/test_imu.py
+  scripts/test_90deg_turn.py
+  scripts/validate_sensors.py
+  scripts/test_map_manager.py
+  scripts/test_mcl_frontier.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

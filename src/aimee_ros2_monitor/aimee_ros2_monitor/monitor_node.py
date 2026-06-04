@@ -15,6 +15,7 @@ Then open browser to: http://localhost:8081
 
 import json
 import logging
+import math
 import os
 import requests
 import subprocess
@@ -1147,6 +1148,221 @@ def clear_session():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ==================== Map Console Flask Routes ====================
+
+@app.route('/maps')
+def map_console_page():
+    """Serve the map console HTML page."""
+    return render_template('map_console.html')
+
+@app.route('/api/map/image.png')
+def map_image_png():
+    """Render current occupancy grid as PNG with robot pose overlay."""
+    if _ros_node is None:
+        return jsonify({'error': 'ROS2 node not ready'}), 503
+    try:
+        png_bytes = _ros_node.render_map_png()
+        if not png_bytes:
+            return jsonify({'error': 'No map data available'}), 503
+        return Response(png_bytes, mimetype='image/png')
+    except Exception as e:
+        logger.error(f"Map PNG render error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/map/pose')
+def map_pose():
+    """Return current robot pose."""
+    if _ros_node is None:
+        return jsonify({'error': 'ROS2 node not ready'}), 503
+    try:
+        with _ros_node._map_lock:
+            pose = dict(_ros_node._latest_pose)
+            pose['timestamp'] = _ros_node._latest_pose_time
+        return jsonify(pose)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/maps')
+def list_maps():
+    """List all maps in the library."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        cli = _ros_node._get_map_mgr_client('list_maps')
+        if not cli.wait_for_service(timeout_sec=2.0):
+            return jsonify({'success': False, 'error': 'Map manager not available'}), 503
+        from aimee_msgs.srv import ListMaps
+        future = cli.call_async(ListMaps.Request())
+        # Simple synchronous wait
+        start = time.time()
+        while not future.done() and time.time() - start < 3.0:
+            time.sleep(0.05)
+        if not future.done():
+            return jsonify({'success': False, 'error': 'Timeout'}), 504
+        resp = future.result()
+        maps = []
+        for i in range(len(resp.ids)):
+            maps.append({
+                'id': resp.ids[i],
+                'name': resp.names[i] if i < len(resp.names) else resp.ids[i],
+                'description': resp.descriptions[i] if i < len(resp.descriptions) else '',
+                'type': resp.types[i] if i < len(resp.types) else 'unknown',
+            })
+        return jsonify({'success': True, 'maps': maps})
+    except Exception as e:
+        logger.error(f"list_maps error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/maps', methods=['POST'])
+def save_map_api():
+    """Save current map to library."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        data = request.get_json(force=True) or {}
+        map_id = data.get('map_id', '').strip()
+        name = data.get('name', map_id).strip()
+        description = data.get('description', '')
+        if not map_id:
+            return jsonify({'success': False, 'message': 'map_id required'}), 400
+        cli = _ros_node._get_map_mgr_client('save_map')
+        if not cli.wait_for_service(timeout_sec=2.0):
+            return jsonify({'success': False, 'error': 'Map manager not available'}), 503
+        from aimee_msgs.srv import SaveMap
+        req = SaveMap.Request()
+        req.map_id = map_id
+        req.name = name
+        req.description = description
+        future = cli.call_async(req)
+        start = time.time()
+        while not future.done() and time.time() - start < 5.0:
+            time.sleep(0.05)
+        if not future.done():
+            return jsonify({'success': False, 'message': 'Timeout'}), 504
+        resp = future.result()
+        return jsonify({'success': resp.success, 'message': resp.message})
+    except Exception as e:
+        logger.error(f"save_map error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/maps/<path:map_id>/load', methods=['POST'])
+def load_map_api(map_id):
+    """Load a map from library and localize."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        cli = _ros_node._get_map_mgr_client('load_map')
+        if not cli.wait_for_service(timeout_sec=2.0):
+            return jsonify({'success': False, 'error': 'Map manager not available'}), 503
+        from aimee_msgs.srv import LoadMap
+        req = LoadMap.Request()
+        req.map_id = map_id
+        req.localize = True
+        future = cli.call_async(req)
+        start = time.time()
+        while not future.done() and time.time() - start < 5.0:
+            time.sleep(0.05)
+        if not future.done():
+            return jsonify({'success': False, 'message': 'Timeout'}), 504
+        resp = future.result()
+        return jsonify({'success': resp.success, 'message': resp.message})
+    except Exception as e:
+        logger.error(f"load_map error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/maps/<path:map_id>', methods=['DELETE'])
+def delete_map_api(map_id):
+    """Delete a map from library."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        cli = _ros_node._get_map_mgr_client('delete_map')
+        if not cli.wait_for_service(timeout_sec=2.0):
+            return jsonify({'success': False, 'error': 'Map manager not available'}), 503
+        from aimee_msgs.srv import DeleteMap
+        req = DeleteMap.Request()
+        req.map_id = map_id
+        future = cli.call_async(req)
+        start = time.time()
+        while not future.done() and time.time() - start < 3.0:
+            time.sleep(0.05)
+        if not future.done():
+            return jsonify({'success': False, 'message': 'Timeout'}), 504
+        resp = future.result()
+        return jsonify({'success': resp.success, 'message': resp.message})
+    except Exception as e:
+        logger.error(f"delete_map error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/location', methods=['POST'])
+def set_location_api():
+    """Publish location name to /location_name topic."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        data = request.get_json(force=True) or {}
+        location = data.get('location', '').strip()
+        if not location:
+            return jsonify({'success': False, 'message': 'location required'}), 400
+        pub = _ros_node.create_publisher(String, '/location_name', 10)
+        msg = String()
+        msg.data = location
+        pub.publish(msg)
+        # Give DDS a moment then destroy
+        time.sleep(0.1)
+        _ros_node.destroy_publisher(pub)
+        return jsonify({'success': True, 'message': f'Location set: {location}'})
+    except Exception as e:
+        logger.error(f"set_location error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/exploration/start', methods=['POST'])
+def start_exploration_api():
+    """Enable exploration mode."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        pub = _ros_node.create_publisher(String, '/exploration_command', 10)
+        msg = String()
+        msg.data = 'start'
+        pub.publish(msg)
+        time.sleep(0.1)
+        _ros_node.destroy_publisher(pub)
+        _ros_node._exploration_active = True
+        return jsonify({'success': True, 'message': 'Exploration started'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/exploration/stop', methods=['POST'])
+def stop_exploration_api():
+    """Disable exploration mode."""
+    if _ros_node is None:
+        return jsonify({'success': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        pub = _ros_node.create_publisher(String, '/exploration_command', 10)
+        msg = String()
+        msg.data = 'stop'
+        pub.publish(msg)
+        time.sleep(0.1)
+        _ros_node.destroy_publisher(pub)
+        _ros_node._exploration_active = False
+        return jsonify({'success': True, 'message': 'Exploration stopped'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/exploration/status')
+def exploration_status_api():
+    """Get exploration status."""
+    if _ros_node is None:
+        return jsonify({'active': False, 'error': 'ROS2 node not ready'}), 503
+    try:
+        return jsonify({
+            'active': getattr(_ros_node, '_exploration_active', False),
+        })
+    except Exception as e:
+        return jsonify({'active': False, 'error': str(e)}), 500
+
+
 # ==================== Helper Functions ====================
 
 def _refresh_nodes(native_api=None):
@@ -1260,7 +1476,36 @@ class MonitorNode(Node):
             self._on_camera_frame,
             QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
         )
-        
+
+        # Map / Odom cache for map console
+        self._map_lock = threading.Lock()
+        self._latest_map = None          # nav_msgs/OccupancyGrid
+        self._latest_map_time = 0.0
+        self._latest_pose = {'x': 0.0, 'y': 0.0, 'theta': 0.0}
+        self._latest_pose_time = 0.0
+        try:
+            from nav_msgs.msg import OccupancyGrid, Odometry
+            self._map_sub = self.create_subscription(
+                OccupancyGrid, '/map',
+                self._on_map_message,
+                QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1)
+            )
+            self._odom_sub = self.create_subscription(
+                Odometry, '/odom',
+                self._on_odom_message,
+                QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
+            )
+        except Exception as e:
+            self.get_logger().warning(f"Map/odom subscription setup failed: {e}")
+            self._map_sub = None
+            self._odom_sub = None
+
+        # Exploration state cache
+        self._exploration_active = False
+
+        # Map manager service clients (created lazily)
+        self._map_mgr_clients = {}
+
         # Pipeline subscriptions
         self._voice_sub = self.create_subscription(
             (Transcription if Transcription else String), '/voice/transcription',
@@ -1326,6 +1571,89 @@ class MonitorNode(Node):
         except Exception as e:
             return {"success": False, "message": f"Snapshot error: {e}"}
     
+    def _get_map_mgr_client(self, service_name: str):
+        """Lazy-create service clients for map manager."""
+        if service_name not in self._map_mgr_clients:
+            try:
+                from aimee_msgs.srv import SaveMap, LoadMap, ListMaps, DeleteMap
+                srv_map = {
+                    'save_map': SaveMap,
+                    'load_map': LoadMap,
+                    'list_maps': ListMaps,
+                    'delete_map': DeleteMap,
+                }
+                self._map_mgr_clients[service_name] = self.create_client(
+                    srv_map[service_name], f'/map_manager/{service_name}'
+                )
+            except Exception as e:
+                self.get_logger().warning(f"Failed to create map mgr client {service_name}: {e}")
+        return self._map_mgr_clients.get(service_name)
+
+    def render_map_png(self, max_size: int = 512) -> bytes:
+        """Render latest occupancy grid as PNG bytes with robot pose overlay."""
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            logger.error("PIL not available for map rendering")
+            return b''
+
+        with self._map_lock:
+            msg = self._latest_map
+            pose = dict(self._latest_pose)
+
+        if msg is None:
+            return b''
+
+        w = msg.info.width
+        h = msg.info.height
+        if w == 0 or h == 0:
+            return b''
+
+        # Create grayscale image from occupancy data
+        # ROS: -1=unknown, 0=free, 100=occupied
+        data = list(msg.data)
+        arr = bytearray(w * h)
+        for i, v in enumerate(data):
+            if v == -1:
+                arr[i] = 205  # light gray
+            elif v >= 50:
+                arr[i] = 0    # black
+            else:
+                arr[i] = 254  # white
+
+        img = Image.frombytes('L', (w, h), bytes(arr))
+
+        # Draw robot pose if available and recent (<5s)
+        if time.time() - self._latest_pose_time < 5.0:
+            draw = ImageDraw.Draw(img)
+            res = msg.info.resolution
+            ox = msg.info.origin.position.x
+            oy = msg.info.origin.position.y
+            # Transform robot world -> grid
+            gx = (pose['x'] - ox) / res
+            gy = (pose['y'] - oy) / res
+            # PIL y is top-down, grid y is bottom-up typically
+            gy_img = h - 1 - gy
+            r = max(2, int(0.15 / res))  # 15cm radius in pixels
+            draw.ellipse([gx - r, gy_img - r, gx + r, gy_img + r], fill=255, outline=255)
+            # Heading arrow
+            theta = pose['theta']
+            ax = gx + r * 2 * math.cos(theta)
+            ay = gy_img - r * 2 * math.sin(theta)  # negate because image y is flipped
+            draw.line([gx, gy_img, ax, ay], fill=255, width=max(1, r // 2))
+
+        # Resize if too large (keep aspect ratio)
+        if w > max_size or h > max_size:
+            scale = max_size / max(w, h)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            img = img.resize((new_w, new_h), Image.NEAREST)
+
+        import io
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
     def _initial_refresh(self):
         """One-shot initial refresh after node is fully initialized."""
         self._update_nodes()
@@ -1368,7 +1696,25 @@ class MonitorNode(Node):
     def _on_cloud_connected(self, msg: Bool):
         global _pipeline_state
         _pipeline_state['cloud'] = {'connected': msg.data, 'timestamp': time.time()}
-    
+
+    def _on_map_message(self, msg):
+        """Cache latest occupancy grid."""
+        with self._map_lock:
+            self._latest_map = msg
+            self._latest_map_time = time.time()
+
+    def _on_odom_message(self, msg):
+        """Cache latest odometry pose."""
+        with self._map_lock:
+            self._latest_pose['x'] = msg.pose.pose.position.x
+            self._latest_pose['y'] = msg.pose.pose.position.y
+            # Extract yaw from quaternion
+            q = msg.pose.pose.orientation
+            siny = 2.0 * (q.w * q.z + q.x * q.y)
+            cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+            self._latest_pose['theta'] = math.atan2(siny, cosy)
+            self._latest_pose_time = time.time()
+
     def _on_log_message(self, msg: Log):
         """Handle incoming log message."""
         global _log_stats

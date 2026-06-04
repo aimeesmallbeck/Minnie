@@ -1,0 +1,5 @@
+---
+string[] ids
+string[] names
+string[] descriptions
+string[] types

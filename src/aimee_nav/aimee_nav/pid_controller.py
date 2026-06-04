@@ -136,8 +136,9 @@ class HeadingVelocityController:
         angular_z = self.heading_pid.compute(0.0, -heading_error)
         linear_x = self.velocity_pid.compute(target_speed, current_speed)
 
-        # Reduce speed when turning sharply
-        turn_penalty = 1.0 - min(1.0, abs(heading_error) / 1.57)
+        # Reduce speed when turning sharply; stop forward motion entirely
+        # if heading error exceeds 90° so the robot can turn in place.
+        turn_penalty = max(0.0, 1.0 - abs(heading_error) / 1.57)
         linear_x *= turn_penalty
 
         return linear_x, angular_z

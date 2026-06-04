@@ -1,0 +1,5 @@
+string map_id       # Unique ID to load
+bool localize       # Run global localization after load
+---
+bool success
+string message

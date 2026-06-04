@@ -85,11 +85,13 @@ class LD19Driver:
         port: str = "/dev/ttyUSB1",
         baudrate: int = 230400,
         angle_offset_deg: float = 0.0,
+                 distance_scale: float = 1.0,
         queue_size: int = 2,
     ) -> None:
         self._port = port
         self._baudrate = baudrate
         self._angle_offset_deg = angle_offset_deg
+        self._distance_scale = distance_scale
         self._serial: Optional[serial.Serial] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -319,7 +321,7 @@ class LD19Driver:
 
             points.append(LD19Point(
                 angle_deg=angle_deg,
-                distance_m=distance_mm / 1000.0,
+                distance_m=distance_mm / 1000.0 * self._distance_scale,
                 intensity=intensity,
             ))
 

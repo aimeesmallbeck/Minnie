@@ -212,6 +212,10 @@ class WaveRoverDriver:
         self._last_angular = angular_z
         self._cmd_active = True
 
+        # Log smoothed velocity for diagnostics
+        if linear_x != 0.0 or angular_z != 0.0:
+            print(f"[WaveRover] smoothed linear={linear_x:.3f} angular={angular_z:.3f}", flush=True)
+
         # Update dead-reckoning immediately (since no encoders)
         self._update_odometry(linear_x, angular_z)
 
@@ -225,15 +229,16 @@ class WaveRoverDriver:
             L = fwd - diff
             R = fwd + diff
 
-            # Motor dead-zone compensation: if the computed command is
+            # Motor dead-zone compensation: if either wheel command is
             # non-zero but below the motor's minimum reliable power,
-            # scale the entire (L, R) vector up so the dominant wheel
-            # reaches the threshold. This preserves turn geometry while
-            # ensuring the robot actually moves.
+            # scale the entire (L, R) vector up so BOTH wheels reach
+            # the threshold. This preserves turn geometry while ensuring
+            # the robot actually moves.
             MIN_POWER = 0.18
-            cmd_mag = max(abs(L), abs(R))
-            if cmd_mag > 1e-4 and cmd_mag < MIN_POWER:
-                scale = MIN_POWER / cmd_mag
+            if abs(L) > 1e-4 or abs(R) > 1e-4:
+                scale_L = MIN_POWER / abs(L) if 1e-4 < abs(L) < MIN_POWER else 1.0
+                scale_R = MIN_POWER / abs(R) if 1e-4 < abs(R) < MIN_POWER else 1.0
+                scale = max(scale_L, scale_R)
                 L *= scale
                 R *= scale
 
@@ -322,7 +327,14 @@ class WaveRoverDriver:
     def _send_http(self, cmd: Dict[str, Any]) -> None:
         with self._http_lock:
             now = time.time()
-            if now - self._last_http_send_time < self._min_http_interval:
+            dt = now - self._last_http_send_time
+            # Always allow stop commands through — never drop a zero-velocity emergency stop
+            is_stop = False
+            if self._control_mode == 'wheel_speed':
+                is_stop = (cmd.get('L', 0.0) == 0.0 and cmd.get('R', 0.0) == 0.0)
+            else:
+                is_stop = (cmd.get('X', 0.0) == 0.0 and cmd.get('Z', 0.0) == 0.0)
+            if dt < self._min_http_interval and not is_stop:
                 return
             # Mark send time immediately so the nav loop isn't gated by HTTP latency
             self._last_http_send_time = now
@@ -406,16 +418,18 @@ class WaveRoverDriver:
     # ------------------------------------------------------------------
 
     def _update_odometry(self, linear_x: float, angular_z: float) -> None:
-        """Integrate commanded velocity to update pose (dead reckoning)."""
-        with self._odom_lock:
-            now = time.time()
-            dt = now - self._last_odom_time
-            self._last_odom_time = now
+        """Store commanded velocity but do NOT integrate pose.
 
-            if dt > 0:
-                self._vx = linear_x
-                self._vth = angular_z
-                self._x += linear_x * math.cos(self._theta) * dt
-                self._y += linear_x * math.sin(self._theta) * dt
-                self._theta += angular_z * dt
-                self._theta = math.atan2(math.sin(self._theta), math.cos(self._theta))
+        The Wave Rover has no wheel encoders. Integrating commanded
+        velocities creates fake odometry that corrupts EKF state when
+        fused with scan matching + IMU. Pose is now tracked exclusively
+        by the EKF (scan matches + IMU gyro).
+        """
+        with self._odom_lock:
+            self._last_odom_time = time.time()
+            self._vx = linear_x
+            self._vth = angular_z
+            # NOTE: Disabled pose integration — robot has no wheel encoders.
+            # self._x += linear_x * math.cos(self._theta) * dt
+            # self._y += linear_x * math.sin(self._theta) * dt
+            # self._theta += angular_z * dt

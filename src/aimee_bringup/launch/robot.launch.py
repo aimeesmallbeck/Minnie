@@ -154,6 +154,11 @@ def generate_launch_description():
         default_value=str(sw.get('skills', True)).lower(),
         description='Enable skill manager'
     )
+    use_usb_cam_arg = DeclareLaunchArgument(
+        'use_usb_cam',
+        default_value=str(sw.get('usb_cam', camera_type != 'none')).lower(),
+        description='Enable USB camera node (video stream)'
+    )
     use_vision_arg = DeclareLaunchArgument(
         'use_vision',
         default_value=str(camera_type != 'none').lower(),
@@ -183,6 +188,7 @@ def generate_launch_description():
     use_llm = LaunchConfiguration('use_llm')
     use_intent = LaunchConfiguration('use_intent')
     use_skills = LaunchConfiguration('use_skills')
+    use_usb_cam = LaunchConfiguration('use_usb_cam')
     use_vision = LaunchConfiguration('use_vision')
     use_arm = LaunchConfiguration('use_arm')
     use_base = LaunchConfiguration('use_base')
@@ -202,6 +208,7 @@ def generate_launch_description():
             'use_llm': use_llm,
             'use_intent': use_intent,
             'use_skills': use_skills,
+            'use_usb_cam': use_usb_cam,
         }.items()
     )
 

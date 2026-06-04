@@ -31,11 +31,18 @@ set(msg_files
   "msg/ObjectDetection.msg"
   "msg/GraspPose.msg"
   "msg/ArmCommand.msg"
+  "msg/MapInfo.msg"
 )
 
 # Service files (add as needed)
 set(srv_files
   "srv/CaptureSnapshot.srv"
+  "srv/SaveMap.srv"
+  "srv/LoadMap.srv"
+  "srv/ListMaps.srv"
+  "srv/DeleteMap.srv"
+  "srv/ImportMap.srv"
+  "srv/ExportMap.srv"
 )
 
 # Action files

@@ -1,0 +1,6 @@
+string map_id       # ID of map to export
+string pgm_path     # Output PGM file path
+string yaml_path    # Output YAML file path
+---
+bool success
+string message

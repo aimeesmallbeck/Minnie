@@ -10,12 +10,12 @@ aimee_nav:
     lidar_baud: 230400
     lidar_frame_id: "base_laser"
     lidar_angle_offset_deg: 0.0
-    lidar_distance_scale: 1.0
+    lidar_distance_scale: 2.0
 
     # ─── Wave Rover Base ───
     rover_port: "/dev/ttyUSB0"
     rover_baud: 115200
-    rover_http_ip: "192.168.1.52"   # HTTP mode for Wave Rover ESP32
+    rover_http_ip: "192.168.1.56"   # HTTP mode for Wave Rover ESP32
     wheel_separation: 0.172
     wheel_radius: 0.04
     max_speed: 0.3
@@ -28,7 +28,7 @@ aimee_nav:
     grid_size_m: 3.0
     grid_resolution_m: 0.15
     global_map_size_m: 10.0
-    global_map_resolution_m: 0.05
+    global_map_resolution_m: 0.10
     obstacle_inflation_m: 0.15
     decay_time_s: 10.0
 
@@ -38,8 +38,8 @@ aimee_nav:
     replan_interval_s: 1.0
     min_clearance_m: 0.20
     navigation_mode: "planned"      # "reactive" or "planned"
-    enable_exploration: true        # Autonomous frontier exploration
-    exploration_speed_scale: 0.3
+    enable_exploration: false       # DISABLED for controlled turn test
+    exploration_speed_scale: 0.4
 
     # ─── Rate & Controllers ───
     nav_rate_hz: 5.0                 # Lower rate for UNO Q headroom
@@ -70,10 +70,8 @@ aimee_nav:
 
     # ─── Map Persistence ───
     map_save_dir: "~/aimee_maps"
-    map_library_dir: "~/aimee_maps"
     waypoints_file: ""
     localization_mode: false   # Set to true to disable map updates (load a map first)
-    auto_save_on_complete: true
     scan_match_interval: 0.2    # Run scan matching every 0.2s (5 Hz) with downsampling
 
     # ─── Yahboom IMU ───
@@ -81,25 +79,8 @@ aimee_nav:
     imu_baud: 115200
     enable_imu_yaw: true
     imu_yaw_variance: 0.005        # ~4° — magnetometer-fused yaw is quite reliable
-    imu_yaw_scale: -1.0           # Yahboom yaw is clockwise-positive; ROS is CCW-positive
+    imu_yaw_scale: 1.0            # WitMotion yaw is clockwise-positive; ROS is CCW-positive
     imu_yaw_offset_deg: 0.0        # Manual mounting offset (degrees)
 
-    # ─── MCL (Monte Carlo Localization) ───
-    mcl_particles_max: 2000
-    mcl_particles_min: 250
-    mcl_kld_epsilon: 0.05
-    mcl_motion_noise_alpha1: 0.2
-    mcl_motion_noise_alpha2: 0.2
-    mcl_motion_noise_alpha3: 0.2
-    mcl_motion_noise_alpha4: 0.2
-
-    # ─── Enhanced Exploration ───
-    exploration_safety_margin_m: 0.40
-    exploration_info_gain_radius_m: 2.0
-    exploration_min_frontier_size_m: 0.25
-    exploration_complete_timeout_s: 60.0
-    exploration_enable_bootstrap_spin: true
-    explore_weight_info: 1.0
-    explore_weight_distance: 0.5
-    explore_weight_safety: 0.8
-    explore_weight_alignment: 0.3
+    # ─── Timing ───
+    # nav_rate_hz and publish_decimation defined above

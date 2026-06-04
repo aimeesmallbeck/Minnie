@@ -131,8 +131,8 @@ class ObstacleAvoidance:
         goal_angle_deg: float,
         goal_distance_m: float,
         attract_gain: float = 1.0,
-        repulse_gain: float = 2.0,
-        repulse_range_m: float = 1.0,
+        repulse_gain: float = 5.0,
+        repulse_range_m: float = 2.0,
     ) -> Tuple[float, float]:
         """
         Compute attractive and repulsive forces.
