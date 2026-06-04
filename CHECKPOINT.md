@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-09 (Late Session)
 **Session Focus:** Implement enhanced SLAM/mapping: multi-map library, MCL global localization, C++ frontier detector, safe exploration engine, browser-based map console
-**Git Commit:** `TBD`
+**Git Commit:** `c6fecbb`
 
 ---
 
@@ -217,7 +217,7 @@ src/aimee_ros2_monitor/
 
 **Date:** 2026-05-09
 **Session Focus:** Diagnose left skew during navigation; fix IMU yaw scale inversion; add motor skew compensation; prepare for SLAM exploration test
-**Git Commit:** `TBD`
+**Git Commit:** `c6fecbb`
 
 ---
 
@@ -304,7 +304,7 @@ src/aimee_nav/
 
 **Date:** 2026-05-05
 **Session Focus:** Integrate Yahboom 10-axis IMU; replace fake odometry with real gyro for EKF prediction; prepare for 90° turn test
-**Git Commit:** `TBD`
+**Git Commit:** `c6fecbb`
 
 ---
 
