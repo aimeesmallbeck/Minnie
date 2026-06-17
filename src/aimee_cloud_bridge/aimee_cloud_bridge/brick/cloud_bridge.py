@@ -47,6 +47,11 @@ class CloudBridgeBrick:
     def __init__(
         self,
         device_id: str = "arduino-uno-q-001",
+        robot_name: str = "Minnie",
+        robot_personality: str = "Adorable Brat",
+        gemini_voice: str = "Fenrir",
+        robot_config: Optional[Dict[str, Any]] = None,
+        session_context: Optional[Dict[str, Any]] = None,
         broker_host: str = "aimeecloud.com",
         broker_port: int = 1883,
         use_websocket: bool = False,
@@ -66,6 +71,25 @@ class CloudBridgeBrick:
         on_session_id: Optional[Callable[[str], None]] = None,
     ):
         self.device_id = device_id
+        self.robot_name = robot_name
+        self.robot_personality = robot_personality
+        self.gemini_voice = gemini_voice
+        self.robot_config = robot_config or {
+            "has_motors": True,
+            "has_arm": False,
+            "has_gripper": False,
+            "has_camera": True,
+            "has_expressions": True,
+            "expression_types": ["happy", "sad", "surprised", "greeting", "celebration"]
+        }
+        self.session_context = session_context or {
+            "ram_mb": 512,
+            "storage_gb": 32,
+            "cpu": "Arduino UNO Q",
+            "battery": "18650 Li-ion 2600mAh",
+            "manufacturer": "Arduino",
+            "model": "UNO R4 WiFi"
+        }
         self.broker_host = broker_host
         self.broker_port = broker_port
         self.use_websocket = use_websocket
@@ -373,12 +397,17 @@ class CloudBridgeBrick:
         payload = {
             "type": "connect",
             "device_id": self.device_id,
+            "robot_name": self.robot_name,
+            "robot_personality": self.robot_personality,
+            "gemini_voice": self.gemini_voice,
             "user_profile": {
                 "name": self.user_name,
                 "location": self.user_location,
                 "language": self.user_language
             },
             "capabilities": self.capabilities,
+            "robot_config": self.robot_config,
+            "session_context": self.session_context,
             "request_session_id": self._session_id,
             "timestamp": self._iso_timestamp()
         }

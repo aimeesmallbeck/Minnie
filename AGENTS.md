@@ -357,7 +357,7 @@ Key documentation files in the repo:
 | `README.md` | Quick start, package overview, bootstrap, config, troubleshooting |
 | `Aimee_Project_Plan.md` | Comprehensive project plan v2.2 — architecture, brick framework, implementation phases, hardware specs, cloud protocol |
 | `CHECKPOINT.md` | Session checkpoint log — daily work log, current state, known issues, modified files |
-| `docs/AimeeCloud_Protocol_v1.1.md` | AimeeCloud MQTT/WebSocket protocol spec |
+| `docs/AimeeCloud_Protocol_v1.4.md` | AimeeCloud MQTT/WebSocket protocol spec |
 | `docs/BRICK_TO_STANDARD_ROS2_MIGRATION.md` | Migration guide from Arduino Brick framework to standard ROS2 |
 | `docs/EDGE_IMPULSE_MODELS.md` | Edge Impulse model deployment docs |
 | `docs/FUTURE_ENHANCEMENTS.md` | Roadmap |

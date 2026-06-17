@@ -873,7 +873,7 @@ For rich storytelling, responses may also include `voice_segments` — an array 
 
 ### Cloud API Contract
 
-The AimeeCloud protocol is documented in `docs/AimeeCloud_Protocol_v1.1.md`.
+The AimeeCloud protocol is documented in `docs/AimeeCloud_Protocol_v1.4.md`.
 
 #### Robot → Cloud Request (AimeeAgent)
 

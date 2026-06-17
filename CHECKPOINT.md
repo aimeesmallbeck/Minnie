@@ -1,5 +1,59 @@
 # Aimee Robot - Session Checkpoint
 
+**Date:** 2026-06-17
+**Session Focus:** Update local AimeeCloud protocol implementation to v1.4; set robot identifier to "Minnie"
+**Git Commit:** `TBD`
+
+---
+
+> ⚠️ **OPERATING PROCEDURE — SAFETY CRITICAL**
+> 1. **Before moving the robot:** Prompt the user for explicit permission.
+> 2. **While the robot is moving:** The agent must remain attentive. NO code edits, NO rebuilds, NO log analysis until the robot is STOPPED.
+> 3. **After any test:** STOP the nav node FIRST, THEN analyze logs.
+> 4. **If the user says stop:** Execute immediately. Do not finish typing, do not complete a thought — stop the robot.
+
+---
+
+## ☁️ AimeeCloud Protocol v1.4 Update
+
+### Changes Made
+- Replaced `docs/AimeeCloud_Protocol_v1.1.md` with `docs/AimeeCloud_Protocol_v1.4.md`.
+- Updated `src/aimee_cloud_bridge/aimee_cloud_bridge/cloud_bridge_node.py`:
+  - Added parameters: `robot_name`, `robot_personality`, `gemini_voice`, `robot_config_json`, `session_context_json`.
+  - Default `robot_name` set to `"Minnie"`.
+  - `connect` message now includes `robot_name`, `robot_personality`, `gemini_voice`, `robot_config`, and `session_context` per protocol v1.4.
+  - Audio WebSocket `session_start` handshake now includes the same identity and context fields.
+  - Capabilities updated to protocol-compliant `input: ["voice", "text"]`, `output: ["tts", "display", "motors", "led"]`.
+- Updated `src/aimee_cloud_bridge/aimee_cloud_bridge/brick/cloud_bridge.py` with the same v1.4 fields and defaults.
+- Updated `src/aimee_cloud_bridge/config/cloud_bridge.yaml` with `"Minnie"` defaults and example `robot_config` / `session_context` JSON.
+- Updated robot configs (`minnie.yaml`, `default.yaml`, `ron.yaml`, `wren.yaml`) with `cloud_params` blocks.
+- Updated launch files (`core.launch.py`, `robot.launch.py`) to forward new cloud parameters from robot YAML to the cloud bridge node.
+- Updated documentation references in `AGENTS.md` and `Aimee_Project_Plan.md`.
+
+### Files Modified
+```
+docs/AimeeCloud_Protocol_v1.4.md                          [NEW - protocol v1.4 spec]
+src/aimee_cloud_bridge/aimee_cloud_bridge/cloud_bridge_node.py
+src/aimee_cloud_bridge/aimee_cloud_bridge/brick/cloud_bridge.py
+src/aimee_cloud_bridge/config/cloud_bridge.yaml
+src/aimee_bringup/config/robots/minnie.yaml
+src/aimee_bringup/config/robots/default.yaml
+src/aimee_bringup/config/robots/ron.yaml
+src/aimee_bringup/config/robots/wren.yaml
+src/aimee_bringup/launch/core.launch.py
+src/aimee_bringup/launch/robot.launch.py
+AGENTS.md
+Aimee_Project_Plan.md
+CHECKPOINT.md
+```
+
+### Status
+> 🟢 **PROTOCOL UPDATED — ROBOT IDENTIFIER SET TO "Minnie"** — Cloud bridge now sends AimeeCloud Protocol v1.4 connect/handshake messages with `robot_name: "Minnie"`, distinct from "Aimee".
+
+---
+
+# Aimee Robot - Session Checkpoint
+
 **Date:** 2026-06-15
 **Session Focus:** Implement random small talking movements (2-6 in) for animation mode; fix base controller serial misconfiguration
 **Git Commit:** `TBD`
@@ -1670,7 +1724,7 @@ base_params:
 
 ```
 /home/arduino/aimee-robot-ws/
-├── docs/AimeeCloud_Protocol_v1.1.md                    [NEW - retrieved from MQTT]
+├── docs/AimeeCloud_Protocol_v1.4.md                    [NEW - retrieved from MQTT]
 ├── src/aimee_intent_router/
 │   └── aimee_intent_router/intent_router_node.py      [UPDATED - stripped LLM, simplified routing]
 ├── src/aimee_cloud_bridge/
@@ -1726,7 +1780,7 @@ base_params:
 
 ```
 /home/arduino/aimee-robot-ws/
-├── docs/AimeeCloud_Protocol_v1.1.md                    [UPDATED - protocol v1.2 retrieved]
+├── docs/AimeeCloud_Protocol_v1.4.md                    [UPDATED - protocol v1.2 retrieved]
 ├── src/aimee_tts/
 │   ├── aimee_tts/tts_engines.py                       [UPDATED - LemonfoxEngine added]
 │   ├── aimee_tts/tts_node.py                          [UPDATED - lemonfox support, voice params]

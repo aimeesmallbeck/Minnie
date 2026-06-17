@@ -48,6 +48,11 @@ class AimeeCloudClientNode(Node):
         # Parameters
         self.declare_parameters(namespace='', parameters=[
             ('device_id', 'arduino-uno-q-001'),
+            ('robot_name', 'Minnie'),
+            ('robot_personality', 'Adorable Brat'),
+            ('gemini_voice', 'Fenrir'),
+            ('robot_config_json', '{}'),
+            ('session_context_json', '{}'),
             ('broker_host', 'aimeecloud.com'),
             ('broker_port', 443),
             ('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
@@ -65,6 +70,25 @@ class AimeeCloudClientNode(Node):
         ])
 
         self._device_id = self.get_parameter('device_id').value
+        self._robot_name = self.get_parameter('robot_name').value
+        self._robot_personality = self.get_parameter('robot_personality').value
+        self._gemini_voice = self.get_parameter('gemini_voice').value
+        self._robot_config = self._parse_json_param('robot_config_json', default={
+            "has_motors": True,
+            "has_arm": False,
+            "has_gripper": False,
+            "has_camera": True,
+            "has_expressions": True,
+            "expression_types": ["happy", "sad", "surprised", "greeting", "celebration"]
+        })
+        self._session_context = self._parse_json_param('session_context_json', default={
+            "ram_mb": 512,
+            "storage_gb": 32,
+            "cpu": "Arduino UNO Q",
+            "battery": "18650 Li-ion 2600mAh",
+            "manufacturer": "Arduino",
+            "model": "UNO R4 WiFi"
+        })
         self._broker_host = self.get_parameter('broker_host').value
         self._broker_port = self.get_parameter('broker_port').value
         self._broker_host = self.get_parameter('broker_host').value
@@ -82,12 +106,13 @@ class AimeeCloudClientNode(Node):
         self._snapshot_resolution = self.get_parameter('snapshot_resolution').value
         self._snapshot_quality = self.get_parameter('snapshot_quality').value
 
+        # Capabilities align with AimeeCloud Protocol v1.4
         # TODO: Make capabilities dynamic based on active ROS2 nodes
         # e.g., scan node graph for /ugv02_controller -> add "motors",
         #       /arm_controller -> add "arm", /obsbot_camera + /camera -> add "snapshot", etc.
         self._capabilities = {
-            "input": ["voice"],
-            "output": ["tts", "snapshot"]
+            "input": ["voice", "text"],
+            "output": ["tts", "display", "motors", "led"]
         }
 
         # State
@@ -159,6 +184,9 @@ class AimeeCloudClientNode(Node):
         self.get_logger().info(
             f"AimeeCloudClientNode initialized:\n"
             f"  Device ID: {self._device_id}\n"
+            f"  Robot Name: {self._robot_name}\n"
+            f"  Personality: {self._robot_personality}\n"
+            f"  Gemini Voice: {self._gemini_voice}\n"
             f"  Broker: {self._broker_host}:{self._broker_port}\n"
             f"  WebSocket: {self._use_websocket} ({self._websocket_path})\n"
             f"  Session file: {self._session_file}"
@@ -166,6 +194,23 @@ class AimeeCloudClientNode(Node):
 
     def _iso_timestamp(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _parse_json_param(self, param_name: str, default: dict) -> dict:
+        """Parse a JSON-string ROS2 parameter into a dictionary."""
+        raw = self.get_parameter(param_name).value
+        if not raw:
+            return default
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            self.get_logger().warning(
+                f"Parameter '{param_name}' parsed to {type(parsed).__name__}, expected dict; using default"
+            )
+            return default
+        except json.JSONDecodeError as e:
+            self.get_logger().warning(f"Failed to parse '{param_name}' as JSON: {e}; using default")
+            return default
 
     def _load_session(self):
         if os.path.exists(self._session_file):
@@ -400,12 +445,17 @@ class AimeeCloudClientNode(Node):
         payload = {
             "type": "connect",
             "device_id": self._device_id,
+            "robot_name": self._robot_name,
+            "robot_personality": self._robot_personality,
+            "gemini_voice": self._gemini_voice,
             "user_profile": {
                 "name": self._user_name,
                 "location": self._user_location,
                 "language": self._user_language
             },
             "capabilities": self._capabilities,
+            "robot_config": self._robot_config,
+            "session_context": self._session_context,
             "request_session_id": self._session_id,
             "timestamp": self._iso_timestamp()
         }
@@ -568,10 +618,16 @@ class AimeeCloudClientNode(Node):
             "api_key": self._api_key,
             "device_id": self._device_id,
             "session_id": self._session_id,
+            "robot_name": self._robot_name,
+            "robot_personality": self._robot_personality,
+            "gemini_voice": self._gemini_voice,
+            "provider": "gemini",
             "capabilities": {
                 "audio_in": { "codec": "pcm16", "sample_rate": 16000 },
                 "audio_out": { "codec": "pcm16", "sample_rate": 24000 }
-            }
+            },
+            "robot_config": self._robot_config,
+            "session_context": self._session_context
         }
         ws.send(json.dumps(handshake))
 

@@ -40,6 +40,23 @@ software:
   cloud_params:
     ws_endpoint: "wss://aimeecloud.com/ws/v1"
     api_key: "ac_paid_demo_67890"
+    robot_name: "Minnie"
+    robot_personality: "Adorable Brat"
+    gemini_voice: "Fenrir"
+    robot_config:
+      has_motors: true
+      has_arm: false
+      has_gripper: false
+      has_camera: true
+      has_expressions: true
+      expression_types: ["happy", "sad", "surprised", "greeting", "celebration"]
+    session_context:
+      ram_mb: 512
+      storage_gb: 32
+      cpu: "Arduino UNO Q"
+      battery: "18650 Li-ion 2600mAh"
+      manufacturer: "Arduino"
+      model: "UNO R4 WiFi"
   behaviors:
     enabled: true
     idle_timeout_s: 60.0

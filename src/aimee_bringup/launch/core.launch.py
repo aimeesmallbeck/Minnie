@@ -111,6 +111,36 @@ def generate_launch_description():
         description='AimeeCloud API key'
     )
 
+    cloud_robot_name_arg = DeclareLaunchArgument(
+        'cloud_robot_name',
+        default_value='Minnie',
+        description='AimeeCloud robot display name'
+    )
+
+    cloud_robot_personality_arg = DeclareLaunchArgument(
+        'cloud_robot_personality',
+        default_value='Adorable Brat',
+        description='AimeeCloud robot personality directive'
+    )
+
+    cloud_gemini_voice_arg = DeclareLaunchArgument(
+        'cloud_gemini_voice',
+        default_value='Fenrir',
+        description='AimeeCloud Gemini voice name'
+    )
+
+    cloud_robot_config_json_arg = DeclareLaunchArgument(
+        'cloud_robot_config_json',
+        default_value='{}',
+        description='AimeeCloud robot_config object as JSON string'
+    )
+
+    cloud_session_context_json_arg = DeclareLaunchArgument(
+        'cloud_session_context_json',
+        default_value='{}',
+        description='AimeeCloud session_context object as JSON string'
+    )
+
     # Get launch configurations
     robot_name = LaunchConfiguration('robot_name')
     config_path = LaunchConfiguration('config_path')
@@ -127,6 +157,11 @@ def generate_launch_description():
     audio_playback_device = LaunchConfiguration('audio_playback_device')
     cloud_ws_endpoint = LaunchConfiguration('cloud_ws_endpoint')
     cloud_api_key = LaunchConfiguration('cloud_api_key')
+    cloud_robot_name = LaunchConfiguration('cloud_robot_name')
+    cloud_robot_personality = LaunchConfiguration('cloud_robot_personality')
+    cloud_gemini_voice = LaunchConfiguration('cloud_gemini_voice')
+    cloud_robot_config_json = LaunchConfiguration('cloud_robot_config_json')
+    cloud_session_context_json = LaunchConfiguration('cloud_session_context_json')
 
     # ─── Environment ───
     set_ros_domain_id = SetEnvironmentVariable(
@@ -272,6 +307,11 @@ def generate_launch_description():
             {
                 'ws_endpoint': cloud_ws_endpoint,
                 'api_key': cloud_api_key,
+                'robot_name': cloud_robot_name,
+                'robot_personality': cloud_robot_personality,
+                'gemini_voice': cloud_gemini_voice,
+                'robot_config_json': cloud_robot_config_json,
+                'session_context_json': cloud_session_context_json,
             }
         ],
         condition=IfCondition(use_cloud)
@@ -294,6 +334,11 @@ def generate_launch_description():
         audio_playback_device_arg,
         cloud_ws_endpoint_arg,
         cloud_api_key_arg,
+        cloud_robot_name_arg,
+        cloud_robot_personality_arg,
+        cloud_gemini_voice_arg,
+        cloud_robot_config_json_arg,
+        cloud_session_context_json_arg,
         set_ros_domain_id,
         set_pacific_tz,
         usb_camera_node,

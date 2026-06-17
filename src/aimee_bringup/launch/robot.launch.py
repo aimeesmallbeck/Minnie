@@ -18,6 +18,7 @@ Usage:
   ros2 launch aimee_bringup robot.launch.py use_voice:=false use_llm:=false
 """
 
+import json
 import os
 import yaml
 from launch import LaunchDescription
@@ -211,6 +212,7 @@ def generate_launch_description():
     )
 
     # ─── Include core launch (intelligence stack) ───
+    cloud_params = sw.get('cloud_params', {})
     core_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             os.path.join(workspace, 'src/aimee_bringup/launch/core.launch.py')
@@ -227,8 +229,27 @@ def generate_launch_description():
             'use_usb_cam': use_usb_cam,
             'audio_capture_device': hw.get('audio', {}).get('capture_device', 'default'),
             'audio_playback_device': hw.get('audio', {}).get('playback_device', 'default'),
-            'cloud_ws_endpoint': sw.get('cloud_params', {}).get('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
-            'cloud_api_key': sw.get('cloud_params', {}).get('api_key', ''),
+            'cloud_ws_endpoint': cloud_params.get('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
+            'cloud_api_key': cloud_params.get('api_key', ''),
+            'cloud_robot_name': cloud_params.get('robot_name', robot_name),
+            'cloud_robot_personality': cloud_params.get('robot_personality', 'Adorable Brat'),
+            'cloud_gemini_voice': cloud_params.get('gemini_voice', 'Fenrir'),
+            'cloud_robot_config_json': json.dumps(cloud_params.get('robot_config', {
+                "has_motors": True,
+                "has_arm": hw.get('arm', 'none') != 'none',
+                "has_gripper": hw.get('arm', 'none') != 'none',
+                "has_camera": hw.get('camera', 'none') != 'none',
+                "has_expressions": True,
+                "expression_types": ["happy", "sad", "surprised", "greeting", "celebration"]
+            })),
+            'cloud_session_context_json': json.dumps(cloud_params.get('session_context', {
+                "ram_mb": 512,
+                "storage_gb": 32,
+                "cpu": "Arduino UNO Q",
+                "battery": "18650 Li-ion 2600mAh",
+                "manufacturer": "Arduino",
+                "model": "UNO R4 WiFi"
+            })),
         }.items()
     )
 
