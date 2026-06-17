@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 import uuid
+import websocket
 from datetime import datetime, timezone
 
 import rclpy
@@ -23,7 +24,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
-from aimee_msgs.msg import Intent, CloudIntent, ArmCommand
+from aimee_msgs.msg import Intent, CloudIntent, ArmCommand, AudioChunk
 try:
     from aimee_msgs.srv import CaptureSnapshot
 except ImportError:
@@ -49,6 +50,8 @@ class AimeeCloudClientNode(Node):
             ('device_id', 'arduino-uno-q-001'),
             ('broker_host', 'aimeecloud.com'),
             ('broker_port', 443),
+            ('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
+            ('api_key', ''),
             ('use_websocket', True),
             ('websocket_path', '/aimeecloud-mqtt'),
             ('user_name', 'Scott'),
@@ -64,6 +67,10 @@ class AimeeCloudClientNode(Node):
         self._device_id = self.get_parameter('device_id').value
         self._broker_host = self.get_parameter('broker_host').value
         self._broker_port = self.get_parameter('broker_port').value
+        self._broker_host = self.get_parameter('broker_host').value
+        self._broker_port = self.get_parameter('broker_port').value
+        self._ws_endpoint = self.get_parameter('ws_endpoint').value
+        self._api_key = self.get_parameter('api_key').value or os.environ.get('LEMONFOX_API_KEY', '')
         self._use_websocket = self.get_parameter('use_websocket').value
         self._websocket_path = self.get_parameter('websocket_path').value
         self._user_name = self.get_parameter('user_name').value
@@ -89,6 +96,11 @@ class AimeeCloudClientNode(Node):
         self._mqtt_client = None
         self._state_lock = threading.Lock()
 
+        # Audio WebSocket state
+        self._audio_ws = None
+        self._audio_ws_connected = False
+        self._audio_ws_thread = None
+
         # Ensure session directory exists
         os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
         self._load_session()
@@ -101,6 +113,7 @@ class AimeeCloudClientNode(Node):
 
         # Publishers
         self._tts_pub = self.create_publisher(String, '/tts/speak', reliable_qos)
+        self._play_audio_pub = self.create_publisher(AudioChunk, '/tts/play_audio', reliable_qos)
         self._session_id_pub = self.create_publisher(String, '/cloud/session_id', reliable_qos)
         self._connected_pub = self.create_publisher(Bool, '/cloud/connected', reliable_qos)
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', reliable_qos)
@@ -111,6 +124,13 @@ class AimeeCloudClientNode(Node):
         self.create_subscription(Intent, '/intent/classified', self._on_intent, 10)
         self.create_subscription(CloudIntent, '/cloud/game_move', self._on_cloud_game_move, 10)
         self.create_subscription(String, '/cloud/raw_text', self._on_cloud_raw_text, 10)
+        
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self.create_subscription(AudioChunk, '/voice/audio_stream', self._on_audio_chunk, sensor_qos)
 
         # Service client for snapshot
         if CaptureSnapshot is not None:
@@ -277,6 +297,8 @@ class AimeeCloudClientNode(Node):
             if session_id:
                 self._save_session(session_id)
                 self.get_logger().info(f"Session initialized: {session_id}")
+                # Start audio WebSocket now that we have a session
+                self._start_audio_ws()
             return
 
         if msg_type == "snapshot_request":
@@ -507,6 +529,113 @@ class AimeeCloudClientNode(Node):
 
     def _on_cloud_raw_text(self, msg: String):
         self.send_agent_request(msg.data)
+
+    def _start_audio_ws(self):
+        """Start the audio WebSocket connection in a background thread."""
+        if self._audio_ws_thread and self._audio_ws_thread.is_alive():
+            return
+        
+        self.get_logger().info(f"Connecting to audio WebSocket at {self._ws_endpoint}...")
+        self._audio_ws_thread = threading.Thread(target=self._audio_ws_run, daemon=True)
+        self._audio_ws_thread.start()
+
+    def _audio_ws_run(self):
+        """WebSocket event loop."""
+        while rclpy.ok():
+            try:
+                self._audio_ws = websocket.WebSocketApp(
+                    self._ws_endpoint,
+                    header=[f"x-api-key: {self._api_key}"],
+                    on_open=self._on_audio_ws_open,
+                    on_message=self._on_audio_ws_message,
+                    on_error=self._on_audio_ws_error,
+                    on_close=self._on_audio_ws_close
+                )
+                self._audio_ws.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                self.get_logger().error(f"Audio WebSocket error: {e}")
+            
+            # Backoff before reconnecting
+            time.sleep(5.0)
+
+    def _on_audio_ws_open(self, ws):
+        self.get_logger().info("Audio WebSocket connected.")
+        self._audio_ws_connected = True
+        
+        # Send handshake
+        handshake = {
+            "type": "session_start",
+            "api_key": self._api_key,
+            "device_id": self._device_id,
+            "session_id": self._session_id,
+            "capabilities": {
+                "audio_in": { "codec": "pcm16", "sample_rate": 16000 },
+                "audio_out": { "codec": "pcm16", "sample_rate": 24000 }
+            }
+        }
+        ws.send(json.dumps(handshake))
+
+    def _on_audio_ws_message(self, ws, message):
+        try:
+            data = json.loads(message)
+            msg_type = data.get("type")
+            
+            if msg_type == "audio_chunk":
+                # Decode and play through TTS node
+                audio_b64 = data.get("data")
+                if audio_b64:
+                    audio_bytes = base64.b64decode(audio_b64)
+                    
+                    msg = AudioChunk()
+                    msg.data = list(audio_bytes)
+                    msg.format = data.get("format", "pcm16")
+                    msg.sample_rate = data.get("sample_rate", 24000)
+                    msg.channels = data.get("channels", 1)
+                    msg.timestamp = self.get_clock().now().to_msg()
+                    self._play_audio_pub.publish(msg)
+                    
+                    self.get_logger().debug(f"Received audio chunk seq {data.get('seq')}")
+            elif msg_type == "session_ready":
+                self.get_logger().info(f"Audio session ready: {data.get('session_id')}")
+            elif msg_type == "interrupted":
+                self.get_logger().info("Audio stream interrupted by cloud.")
+                # Send stop to TTS
+                stop_msg = String()
+                stop_msg.data = "stop"
+                self._tts_pub.publish(stop_msg)
+            elif msg_type == "error":
+                self.get_logger().error(f"Cloud audio error: {data.get('message')} (code: {data.get('code')})")
+        except Exception as e:
+            self.get_logger().error(f"Error processing WebSocket message: {e}")
+
+    def _on_audio_ws_error(self, ws, error):
+        self.get_logger().error(f"Audio WebSocket error: {error}")
+
+    def _on_audio_ws_close(self, ws, close_status_code, close_msg):
+        self.get_logger().info("Audio WebSocket closed.")
+        self._audio_ws_connected = False
+
+    def _on_audio_chunk(self, msg: AudioChunk):
+        """Handle raw audio chunks from Voice Manager and stream to AimeeCloud via WebSocket."""
+        if not self._audio_ws or not self._audio_ws_connected:
+            # Try to start it if it should be running
+            if self._connected:
+                self._start_audio_ws()
+            return
+
+        try:
+            audio_bytes = bytes(msg.data)
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            
+            payload = {
+                "type": "audio_chunk",
+                "format": "pcm16",
+                "sample_rate": msg.sample_rate,
+                "data": audio_b64
+            }
+            self._audio_ws.send(json.dumps(payload))
+        except Exception as e:
+            self.get_logger().error(f"Error streaming audio to cloud WebSocket: {e}")
 
     def _speak_response(self, text: str, voice: dict = None, voice_segments: list = None):
         """Publish TTS text, optionally with voice metadata from AimeeCloud."""

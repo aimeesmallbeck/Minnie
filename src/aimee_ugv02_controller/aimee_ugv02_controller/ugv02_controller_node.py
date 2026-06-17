@@ -84,6 +84,7 @@ class UGV02ControllerNode(Node):
             ('angular_scale', 1.0),        # Scale factor for angular velocity
             ('control_mode', 'velocity'),  # 'velocity' (T=13) or 'wheel_speed' (T=1)
             ('http_ip', ''),               # ESP32 IP for HTTP commands (e.g., 192.168.1.56)
+            ('use_serial', True),          # Set False for pure Wi-Fi HTTP mode
         ])
 
         # Get parameters
@@ -103,6 +104,8 @@ class UGV02ControllerNode(Node):
         self._angular_scale = self.get_parameter('angular_scale').value
         self._control_mode = self.get_parameter('control_mode').value
         self._http_ip = self.get_parameter('http_ip').value
+        self._use_serial = self.get_parameter('use_serial').value
+        self._http_mode = bool(self._http_ip)
 
         # Setup QoS
         reliable_qos = QoSProfile(
@@ -167,16 +170,19 @@ class UGV02ControllerNode(Node):
         # Timers
         self._heartbeat_timer = None
         self._watchdog_timer = None
+        self._odom_timer = None
 
-        # Connect to serial
-        self._connect_serial()
+        # Connect to serial if requested
+        if self._use_serial:
+            self._connect_serial()
+        else:
+            self.get_logger().info("Serial disabled; running in HTTP-only mode")
 
-        if self._connected:
-            # Enable continuous feedback if requested
-            if self._continuous_feedback:
-                self._enable_continuous_feedback(True)
-            
-            # Start timers
+        if self._connected and self._continuous_feedback:
+            self._enable_continuous_feedback(True)
+
+        # Start timers for HTTP mode and/or serial mode
+        if self._http_mode or self._connected:
             self._heartbeat_timer = self.create_timer(
                 self._heartbeat_interval, self._heartbeat_callback
             )
@@ -184,9 +190,14 @@ class UGV02ControllerNode(Node):
                 0.1, self._watchdog_callback
             )
 
+        # Odometry publisher: integrate commanded (or feedback) velocities at 10 Hz
+        self._odom_timer = self.create_timer(0.1, self._odom_callback)
+
+        mode_str = "HTTP" if self._http_mode else "serial"
         self.get_logger().info(
             f"UGV02 Controller initialized:\n"
-            f"  Serial: {self._serial_port} @ {self._baud_rate} baud\n"
+            f"  Mode: {mode_str}\n"
+            f"  Serial: {self._serial_port if self._use_serial else 'disabled'} @ {self._baud_rate} baud\n"
             f"  Base frame: {self._base_frame}\n"
             f"  Odom frame: {self._odom_frame}\n"
             f"  Max speed: {self._max_speed} m/s\n"
@@ -263,7 +274,7 @@ class UGV02ControllerNode(Node):
 
     def _process_continuous_feedback(self, msg: Dict[str, Any]):
         """Process Wave Rover T=1001 continuous feedback packet.
-        
+
         Format: {"T":1001,"L":0,"R":0,"r":roll,"p":pitch,"y":yaw,"temp":C,"v":volts}
         """
         try:
@@ -280,47 +291,27 @@ class UGV02ControllerNode(Node):
                 right_speed = msg.get('R', 0)
                 v_left = left_speed * self._wheel_radius
                 v_right = right_speed * self._wheel_radius
-            
+
             self._vx = (v_right + v_left) / 2.0
             self._vth = (v_right - v_left) / self._wheel_sep
-            
-            # Update position using dead reckoning
-            current_time = time.time()
-            dt = current_time - self._last_odom_time
-            self._last_odom_time = current_time
-            
-            if dt > 0:
-                delta_x = self._vx * math.cos(self._theta) * dt
-                delta_y = self._vx * math.sin(self._theta) * dt
-                delta_th = self._vth * dt
-                
-                self._x += delta_x
-                self._y += delta_y
-                self._theta += delta_th
-                
-                # Normalize theta
-                self._theta = math.atan2(math.sin(self._theta), math.cos(self._theta))
-            
-            # Publish odometry + TF (decimated to reduce CPU/DDS load)
-            self._feedback_count += 1
-            if self._feedback_count >= self._publish_decimation:
-                self._feedback_count = 0
-                self._publish_odometry()
-            
+
+            # Odometry integration is handled by _odom_callback so it works
+            # identically with or without serial feedback.
+
             # Publish IMU if r/p/y present
             if 'r' in msg or 'p' in msg or 'y' in msg:
                 imu_msg = Imu()
                 imu_msg.header.stamp = self.get_clock().now().to_msg()
                 imu_msg.header.frame_id = 'imu_link'
-                
+
                 # r/p/y are in degrees from Wave Rover
                 roll_rad = math.radians(msg.get('r', 0))
                 pitch_rad = math.radians(msg.get('p', 0))
                 yaw_rad = math.radians(msg.get('y', 0))
                 imu_msg.orientation = self._euler_to_quaternion(roll_rad, pitch_rad, yaw_rad)
-                
+
                 self._imu_pub.publish(imu_msg)
-            
+
             # Publish battery voltage if present
             if 'v' in msg:
                 battery_msg = BatteryState()
@@ -328,7 +319,7 @@ class UGV02ControllerNode(Node):
                 battery_msg.voltage = float(msg['v'])
                 battery_msg.present = True
                 self._battery_pub.publish(battery_msg)
-                
+
         except Exception as e:
             self.get_logger().debug(f"Continuous feedback processing error: {e}")
 
@@ -341,36 +332,18 @@ class UGV02ControllerNode(Node):
         try:
             left_speed = msg.get('L', 0)  # Left wheel speed
             right_speed = msg.get('R', 0)  # Right wheel speed
-            
+
             # Calculate robot velocities
             # v = (v_r + v_l) / 2
             # omega = (v_r - v_l) / wheel_separation
             v_left = left_speed * self._wheel_radius
             v_right = right_speed * self._wheel_radius
-            
+
             self._vx = (v_right + v_left) / 2.0
             self._vth = (v_right - v_left) / self._wheel_sep
-            
-            # Update position using dead reckoning
-            current_time = time.time()
-            dt = current_time - self._last_odom_time
-            self._last_odom_time = current_time
-            
-            if dt > 0:
-                delta_x = self._vx * math.cos(self._theta) * dt
-                delta_y = self._vx * math.sin(self._theta) * dt
-                delta_th = self._vth * dt
-                
-                self._x += delta_x
-                self._y += delta_y
-                self._theta += delta_th
-                
-                # Normalize theta
-                self._theta = math.atan2(math.sin(self._theta), math.cos(self._theta))
-            
-            # Publish odometry
-            self._publish_odometry()
-            
+
+            # Odometry integration is handled by _odom_callback.
+
         except Exception as e:
             self.get_logger().debug(f"Odometry processing error: {e}")
 
@@ -454,28 +427,58 @@ class UGV02ControllerNode(Node):
             t.transform.rotation = odom.pose.pose.orientation
             self._tf_broadcaster.sendTransform(t)
 
+    def _odom_callback(self):
+        """Integrate velocities and publish odometry at a fixed rate.
+
+        Works with or without serial feedback: _vx/_vth are set by cmd_vel
+        and updated by feedback packets when available.
+        """
+        now = time.time()
+        dt = now - self._last_odom_time
+        if dt > 0 and dt < 1.0:  # ignore large jumps (e.g., startup)
+            delta_x = self._vx * math.cos(self._theta) * dt
+            delta_y = self._vx * math.sin(self._theta) * dt
+            delta_th = self._vth * dt
+
+            self._x += delta_x
+            self._y += delta_y
+            self._theta += delta_th
+            self._theta = math.atan2(math.sin(self._theta), math.cos(self._theta))
+
+        self._last_odom_time = now
+        self._publish_odometry()
+
     def _on_cmd_vel(self, msg: Twist):
         """Handle incoming velocity commands."""
         self._last_cmd_time = time.time()
         self._cmd_vel_active = True
-        
+
         # Extract velocities
         linear_x = msg.linear.x * self._linear_scale
-        angular_z = msg.angular.z * self._angular_scale
-        
+        # angular_scale is applied in _send_velocity_command; don't double-scale here
+        angular_z = msg.angular.z
+
         # Clamp linear to max speed
         linear_x = max(-self._max_speed, min(self._max_speed, linear_x))
         # Note: angular is NOT clamped here - _send_velocity_command normalizes wheel speeds
-        
+
         self._last_linear = linear_x
         self._last_angular = angular_z
-        
+
+        # Use commanded velocities as the odometry source when no encoder feedback is available
+        self._vx = linear_x
+        self._vth = angular_z
+
         # Send to robot
         self.get_logger().info(f"CMD_VEL received: linear={linear_x:.2f} angular={angular_z:.2f}")
         self._send_velocity_command(linear_x, angular_z)
 
     def _send_velocity_command(self, linear_x: float, angular_z: float):
         """Send velocity command to ESP32 via HTTP or serial."""
+        # Update the velocities used for open-loop odometry integration
+        self._vx = linear_x
+        self._vth = angular_z
+
         if self._control_mode == 'wheel_speed':
             # Wave Rover ESP32 firmware expects T=1 with L/R as direct motor
             # commands in [-0.5, 0.5], matching the web teleop's movtionButton().
@@ -582,7 +585,7 @@ class UGV02ControllerNode(Node):
         Skips if a command was recently sent via HTTP (the ESP32 already has
         a fresh command). This avoids piling up requests on the ESP32 server.
         """
-        if not self._connected:
+        if not self._http_mode and not self._connected:
             return
 
         # Skip heartbeat if we just sent a command via HTTP (let ESP32 recover)
@@ -634,21 +637,26 @@ class UGV02ControllerNode(Node):
     def destroy_node(self):
         """Clean shutdown."""
         self.get_logger().info("Shutting down UGV02 controller...")
-        
+
         self._running = False
-        
-        # Stop robot
-        if self._connected:
+
+        # Cancel timers
+        for timer in (self._heartbeat_timer, self._watchdog_timer, self._odom_timer):
+            if timer is not None:
+                timer.cancel()
+
+        # Stop robot (HTTP or serial)
+        if self._http_mode or self._connected:
             self._send_velocity_command(0.0, 0.0)
             time.sleep(0.1)
-        
+
         # Close serial
         if self._serial and self._serial.is_open:
             self._serial.close()
-        
+
         if self._read_thread and self._read_thread.is_alive():
             self._read_thread.join(timeout=1.0)
-        
+
         super().destroy_node()
 
 

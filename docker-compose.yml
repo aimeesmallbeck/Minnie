@@ -61,7 +61,9 @@ services:
       retries: 3
       start_period: 60s
     
-    # Default: drop to an interactive bash shell.
-    # For production, override with: docker compose run --rm aimee-robot ros2 launch aimee_bringup core.launch.py
+    # Production command: launch the robot stack with voice streaming and monitor
+    command: >
+      bash -c "source /opt/ros/humble/setup.bash && source /workspace/install/setup.bash && ros2 launch aimee_bringup robot.launch.py use_monitor:=true use_voice:=true use_cloud:=true use_tts:=true use_llm:=false"
+
     stdin_open: true
     tty: true

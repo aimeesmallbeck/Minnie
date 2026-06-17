@@ -179,6 +179,11 @@ def generate_launch_description():
         default_value=str(lidar_type != 'none').lower(),
         description='Enable lidar'
     )
+    use_behaviors_arg = DeclareLaunchArgument(
+        'use_behaviors',
+        default_value=str(sw.get('behaviors', {}).get('enabled', True)).lower(),
+        description='Enable idle/talking animation behaviors'
+    )
 
     # Get launch configurations
     use_cloud = LaunchConfiguration('use_cloud')
@@ -193,6 +198,17 @@ def generate_launch_description():
     use_arm = LaunchConfiguration('use_arm')
     use_base = LaunchConfiguration('use_base')
     use_lidar = LaunchConfiguration('use_lidar')
+    use_behaviors = LaunchConfiguration('use_behaviors')
+
+    # ─── Animation / Behavior Launch ───
+    behaviors_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(workspace, 'src/aimee_behaviors/launch/behaviors.launch.py')
+        ]),
+        launch_arguments={
+            'use_behaviors': use_behaviors,
+        }.items()
+    )
 
     # ─── Include core launch (intelligence stack) ───
     core_launch = IncludeLaunchDescription(
@@ -209,6 +225,10 @@ def generate_launch_description():
             'use_intent': use_intent,
             'use_skills': use_skills,
             'use_usb_cam': use_usb_cam,
+            'audio_capture_device': hw.get('audio', {}).get('capture_device', 'default'),
+            'audio_playback_device': hw.get('audio', {}).get('playback_device', 'default'),
+            'cloud_ws_endpoint': sw.get('cloud_params', {}).get('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
+            'cloud_api_key': sw.get('cloud_params', {}).get('api_key', ''),
         }.items()
     )
 
@@ -231,6 +251,12 @@ def generate_launch_description():
             'wheel_radius': base_params.get('wheel_radius', 0.04),
             'max_speed': base_params.get('max_speed', 0.5),
             'publish_tf': base_params.get('publish_tf', True),
+            'http_ip': base_params.get('http_ip', ''),
+            'control_mode': base_params.get('control_mode', 'velocity'),
+            'heartbeat_interval': base_params.get('heartbeat_interval', 0.5),
+            'linear_scale': base_params.get('linear_scale', 1.0),
+            'angular_scale': base_params.get('angular_scale', 1.0),
+            'use_serial': base_params.get('use_serial', True),
         }],
         condition=IfCondition(use_base),
     )
@@ -321,11 +347,14 @@ def generate_launch_description():
         use_llm_arg,
         use_intent_arg,
         use_skills_arg,
+        use_usb_cam_arg,
         use_vision_arg,
         use_arm_arg,
         use_base_arg,
         use_lidar_arg,
+        use_behaviors_arg,
         core_launch,
+        behaviors_launch,
     ])
 
     # Add base controller for Waveshare-protocol platforms.

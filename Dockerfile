@@ -73,6 +73,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pykokoro==0.6.5 \
     kokorog2p==0.6.7 \
     paho-mqtt==2.1.0 \
+    websocket-client==1.9.0 \
     requests==2.33.1 \
     "numpy<2" \
     opencv-python-headless==4.13.0.92 \

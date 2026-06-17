@@ -87,6 +87,30 @@ def generate_launch_description():
         description='Enable AimeeCloud bridge'
     )
 
+    audio_capture_device_arg = DeclareLaunchArgument(
+        'audio_capture_device',
+        default_value='default',
+        description='ALSA device for audio capture'
+    )
+
+    audio_playback_device_arg = DeclareLaunchArgument(
+        'audio_playback_device',
+        default_value='default',
+        description='ALSA device for audio playback'
+    )
+
+    cloud_ws_endpoint_arg = DeclareLaunchArgument(
+        'cloud_ws_endpoint',
+        default_value='wss://aimeecloud.com/ws/v1',
+        description='AimeeCloud audio WebSocket endpoint'
+    )
+
+    cloud_api_key_arg = DeclareLaunchArgument(
+        'cloud_api_key',
+        default_value='',
+        description='AimeeCloud API key'
+    )
+
     # Get launch configurations
     robot_name = LaunchConfiguration('robot_name')
     config_path = LaunchConfiguration('config_path')
@@ -99,6 +123,10 @@ def generate_launch_description():
     use_intent = LaunchConfiguration('use_intent')
     use_skills = LaunchConfiguration('use_skills')
     use_cloud = LaunchConfiguration('use_cloud')
+    audio_capture_device = LaunchConfiguration('audio_capture_device')
+    audio_playback_device = LaunchConfiguration('audio_playback_device')
+    cloud_ws_endpoint = LaunchConfiguration('cloud_ws_endpoint')
+    cloud_api_key = LaunchConfiguration('cloud_api_key')
 
     # ─── Environment ───
     set_ros_domain_id = SetEnvironmentVariable(
@@ -138,7 +166,7 @@ def generate_launch_description():
             'engine': 'vosk',
             'model_path': '/home/arduino/vosk-models/vosk-model-small-en-us-0.15',
             'sample_rate': 16000,
-            'audio_device': 'default',
+            'audio_device': audio_capture_device,
             'publish_partials': True,
             'energy_threshold': 45.0,
             'enabled': True,
@@ -146,6 +174,7 @@ def generate_launch_description():
             'whisper_api_base_url': 'https://api.lemonfox.ai/v1/audio/transcriptions',
             'whisper_api_key': os.getenv('LEMONFOX_API_KEY', ''),
             'default_voice': 'sarah',
+            'stream_to_cloud': True,
         }],
         condition=IfCondition(use_voice)
     )
@@ -163,6 +192,7 @@ def generate_launch_description():
             'lemonfox_api_key': os.getenv('LEMONFOX_API_KEY', ''),
             'lemonfox_api_base_url': 'https://api.lemonfox.ai/v1',
             'volume': 1.0,
+            'audio_device': audio_playback_device,
         }],
         condition=IfCondition(use_tts)
     )
@@ -234,10 +264,16 @@ def generate_launch_description():
         executable='cloud_bridge_node',
         name='aimee_cloud_client',
         output='screen',
-        parameters=[os.path.join(
-            os.getenv('AIMEE_ROBOT_WS', '/workspace'),
-            'src/aimee_cloud_bridge/config/cloud_bridge.yaml'
-        )],
+        parameters=[
+            os.path.join(
+                os.getenv('AIMEE_ROBOT_WS', '/workspace'),
+                'src/aimee_cloud_bridge/config/cloud_bridge.yaml'
+            ),
+            {
+                'ws_endpoint': cloud_ws_endpoint,
+                'api_key': cloud_api_key,
+            }
+        ],
         condition=IfCondition(use_cloud)
     )
 
@@ -254,6 +290,10 @@ def generate_launch_description():
         use_intent_arg,
         use_skills_arg,
         use_cloud_arg,
+        audio_capture_device_arg,
+        audio_playback_device_arg,
+        cloud_ws_endpoint_arg,
+        cloud_api_key_arg,
         set_ros_domain_id,
         set_pacific_tz,
         usb_camera_node,

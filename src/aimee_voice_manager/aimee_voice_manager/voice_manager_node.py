@@ -35,7 +35,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import String, Bool
-from aimee_msgs.msg import Transcription
+from aimee_msgs.msg import Transcription, AudioChunk
 
 logging.basicConfig(
     level=logging.INFO,
@@ -79,6 +79,7 @@ class VoiceManagerNode(Node):
             ('whisper_api_base_url', 'https://api.openai.com/v1/audio/transcriptions'),
             ('online_topic', '/cloud/connected'),
             ('default_voice', 'sarah'),
+            ('stream_to_cloud', False),
         ])
 
         self._engine = self.get_parameter('engine').value
@@ -96,6 +97,7 @@ class VoiceManagerNode(Node):
         self._whisper_api_base_url = self.get_parameter('whisper_api_base_url').value
         self._online_topic = self.get_parameter('online_topic').value
         self._default_voice = self.get_parameter('default_voice').value
+        self._stream_to_cloud = self.get_parameter('stream_to_cloud').value
 
         if self._debug:
             logger.setLevel(logging.DEBUG)
@@ -118,6 +120,9 @@ class VoiceManagerNode(Node):
         )
         self._partial_pub = self.create_publisher(
             Transcription, '/voice/partial', sensor_qos
+        )
+        self._audio_stream_pub = self.create_publisher(
+            AudioChunk, '/voice/audio_stream', sensor_qos
         )
         self._status_pub = self.create_publisher(
             String, '/voice/status', reliable_qos
@@ -469,6 +474,10 @@ class VoiceManagerNode(Node):
                 else:
                     zero_energy_streak = 0
 
+                # Publish raw chunk if cloud streaming is enabled
+                if self._stream_to_cloud and not self._tts_active:
+                    self._publish_audio_chunk(data)
+
                 # Hard gate: discard audio while TTS is active
                 if self._tts_active:
                     utterance_buffer.clear()
@@ -700,6 +709,10 @@ class VoiceManagerNode(Node):
     # ─────────────────────────────── ROS2 Callbacks ───────────────────────────────
 
     def _publish_transcription(self, result: TranscriptionResult):
+        if self._stream_to_cloud:
+            self.get_logger().info(f"Streaming mode active: suppressing local transcription publishing for '{result.text[:30]}...'")
+            return
+            
         msg = Transcription()
         msg.text = result.text
         msg.confidence = result.confidence
@@ -717,6 +730,9 @@ class VoiceManagerNode(Node):
         )
 
     def _publish_partial(self, result: TranscriptionResult):
+        if self._stream_to_cloud:
+            return
+            
         msg = Transcription()
         msg.text = result.text
         msg.confidence = result.confidence
@@ -728,6 +744,17 @@ class VoiceManagerNode(Node):
         msg.timestamp = self.get_clock().now().to_msg()
         msg.session_id = result.session_id
         self._partial_pub.publish(msg)
+
+    def _publish_audio_chunk(self, data: bytes):
+        """Publish raw audio chunk for cloud streaming."""
+        msg = AudioChunk()
+        msg.data = list(data)
+        msg.format = "pcm_s16le"
+        msg.sample_rate = self._sample_rate
+        msg.channels = 1
+        msg.timestamp = self.get_clock().now().to_msg()
+        msg.session_id = "" # TODO: Link to session if available
+        self._audio_stream_pub.publish(msg)
 
     def _on_online_changed(self, msg: Bool):
         with self._online_lock:

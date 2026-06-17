@@ -10,9 +10,19 @@ hardware:
     wheel_separation: 0.172
     wheel_radius: 0.04
     max_speed: 0.5
+    http_ip: "192.168.1.52"
+    control_mode: "wheel_speed"
+    heartbeat_interval: 0.5
+    angular_scale: 1.0
+    linear_scale: 1.0
+    use_serial: false            # Wave Rover base is Wi-Fi only; serial is for lidar/IMU reference
   arm: "none"
-  camera: "obsbot"
-  lidar: "ld19"
+  camera: "obsbot"               # NOTE: live video is from Rocware USB webcam; OBSBOT runs PTZ/status only
+  audio:
+    capture_device: "plughw:0,0"
+    playback_device: "plughw:0,0"
+    sample_rate: 16000
+  lidar: "none"
   lidar_params:
     serial_port: "/dev/ttyUSB0"
     baud_rate: 230400
@@ -27,3 +37,31 @@ software:
   intent: true
   skills: true
   cloud: true
+  cloud_params:
+    ws_endpoint: "wss://aimeecloud.com/ws/v1"
+    api_key: "ac_paid_demo_67890"
+  behaviors:
+    enabled: true
+    idle_timeout_s: 60.0
+    max_displacement_m: 0.15      # ~6 inches; hard safety limit before returning home
+
+    # Talking animation: "random" small moves or classic "sway"
+    talk_animation_mode: "random"
+    talk_sway_speed_m_s: 0.015    # (only used when mode == "sway")
+    talk_sway_period_s: 2.0       # (only used when mode == "sway")
+
+    # Random talking moves: 2-6 inch forward/back/turn jitters while speaking
+    talk_move_distance_min_m: 0.05  # ~2 inches
+    talk_move_distance_max_m: 0.15  # ~6 inches
+    talk_turn_angle_min_deg: 5.0
+    talk_turn_angle_max_deg: 15.0
+    talk_move_speed_m_s: 0.03
+    talk_turn_speed_rad_s: 0.15
+    talk_move_interval_s: 1.5
+
+    # Idle random-move parameters
+    animation_linear_speed_m_s: 0.02
+    animation_angular_speed_rad_s: 0.08
+    animation_move_duration_s: 1.0
+    marker_size_m: 0.05
+    home_marker_id: 0

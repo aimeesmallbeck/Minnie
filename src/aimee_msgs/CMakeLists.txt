@@ -18,6 +18,7 @@ find_package(action_msgs REQUIRED)
 # Message files
 set(msg_files
   "msg/Intent.msg"
+  "msg/AudioChunk.msg"
   "msg/Transcription.msg"
   "msg/RobotState.msg"
   "msg/FaceDetection.msg"

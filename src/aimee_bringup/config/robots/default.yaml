@@ -14,7 +14,7 @@ robot_name: "aimee"
 #
 # Both UGV02 and Wave Rover use the same JSON serial protocol, so they share
 # the same controller node (aimee_ugv02_controller). Only the geometry params
-# differ.  Additional motor platforms can be added by extending robot.launch.py.
+# differ.  Additional motor platforms can be added by extending robot.launch.py if needed.
 #
 # Nav2 / SLAM are completely decoupled from the base controller — they only
 # require /odom, /cmd_vel, and the odom → base_link transform.
@@ -26,6 +26,7 @@ hardware:
     wheel_separation: 0.23
     wheel_radius: 0.04
     max_speed: 0.5
+    use_serial: true             # Set false for Wi-Fi-only bases (e.g. Wave Rover)
   arm: "roarm_m3"      # Arm options: roarm_m3, none
   camera: "obsbot"     # Camera options: obsbot, none
   lidar: "none"        # Lidar options: ld19, none
@@ -41,3 +42,28 @@ software:
   skills: true         # Skill/action manager
   cloud: true          # AimeeCloud MQTT bridge
   navigation_mode: "distributed"  # "integrated" (AimeeNav) or "distributed" (Nav2+SLAM)
+  behaviors:
+    enabled: true
+    idle_timeout_s: 60.0
+    max_displacement_m: 0.15      # ~6 inches; hard safety limit before returning home
+
+    # Talking animation: "random" small moves or classic "sway"
+    talk_animation_mode: "random"
+    talk_sway_speed_m_s: 0.015    # (only used when mode == "sway")
+    talk_sway_period_s: 2.0       # (only used when mode == "sway")
+
+    # Random talking moves: 2-6 inch forward/back/turn jitters while speaking
+    talk_move_distance_min_m: 0.05  # ~2 inches
+    talk_move_distance_max_m: 0.15  # ~6 inches
+    talk_turn_angle_min_deg: 5.0
+    talk_turn_angle_max_deg: 15.0
+    talk_move_speed_m_s: 0.03
+    talk_turn_speed_rad_s: 0.15
+    talk_move_interval_s: 1.5
+
+    # Idle random-move parameters
+    animation_linear_speed_m_s: 0.02
+    animation_angular_speed_rad_s: 0.08
+    animation_move_duration_s: 1.0
+    marker_size_m: 0.05
+    home_marker_id: 0

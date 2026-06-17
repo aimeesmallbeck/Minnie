@@ -28,11 +28,11 @@ import time
 import wave
 from typing import Optional
 
-import pygame
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String, Bool, Float32
+from aimee_msgs.msg import AudioChunk
 
 from aimee_tts.tts_engines import TTSEngineManager
 
@@ -67,6 +67,10 @@ class TTSNode(Node):
                 ("volume", 1.0),
                 ("speed", 1.0),
                 ("use_pygame", True),
+                ("audio_device", "default"),
+                ("audio_buffer_ms", 300),
+                ("audio_flush_ms", 200),
+                ("pygame_buffer", 2048),
                 ("debug", False),
             ],
         )
@@ -86,6 +90,10 @@ class TTSNode(Node):
         volume = self.get_parameter("volume").value
         speed = self.get_parameter("speed").value
         use_pygame = self.get_parameter("use_pygame").value
+        audio_device = self.get_parameter("audio_device").value
+        audio_buffer_ms = self.get_parameter("audio_buffer_ms").value
+        audio_flush_ms = self.get_parameter("audio_flush_ms").value
+        pygame_buffer = self.get_parameter("pygame_buffer").value
         debug = self.get_parameter("debug").value
 
         if debug:
@@ -103,6 +111,7 @@ class TTSNode(Node):
 
         # Subscribers
         self.create_subscription(String, "/tts/speak", self._on_speak, 10)
+        self.create_subscription(AudioChunk, "/tts/play_audio", self._on_play_audio, 10)
         self.create_subscription(String, "/tts/control", self._on_control, 10)
         self.create_subscription(Float32, "/tts/volume", self._on_volume, 10)
         self.create_subscription(String, "/tts/voice", self._on_voice, 10)
@@ -127,6 +136,10 @@ class TTSNode(Node):
         self._speed = speed
         self._current_voice = default_voice
         self._use_pygame = use_pygame
+        self._audio_device = audio_device
+        self._audio_buffer_ms = max(50, int(audio_buffer_ms))
+        self._audio_flush_ms = max(50, int(audio_flush_ms))
+        self._pygame_buffer = max(512, int(pygame_buffer))
         self._pygame_initialized = False
         self._is_speaking = False
         self._preempt_event = threading.Event()
@@ -136,6 +149,23 @@ class TTSNode(Node):
         self._consecutive_failures = 0
         self._last_health_ok = True
         self._shutdown = False
+
+        # Streaming audio chunk accumulation
+        self._audio_buffer = bytearray()
+        self._audio_buffer_lock = threading.Lock()
+        self._audio_buffer_timer: Optional[threading.Timer] = None
+        self._audio_chunk_sample_rate = 24000
+        self._audio_chunk_channels = 1
+
+        # Configure ALSA device for pygame/SDL before importing pygame
+        if self._audio_device and self._audio_device != "default":
+            os.environ["SDL_AUDIODRIVER"] = "alsa"
+            os.environ["AUDIODEV"] = self._audio_device
+            self.get_logger().info(f"Pygame ALSA device set to {self._audio_device}")
+
+        # Import pygame after environment is configured
+        import pygame
+        self._pygame = pygame
 
         # Init pygame
         if self._use_pygame:
@@ -154,17 +184,23 @@ class TTSNode(Node):
             f"  Default engine: {default_engine}\n"
             f"  Fallback: {fallback_engine}\n"
             f"  Voice: {default_voice}\n"
+            f"  Audio device: {self._audio_device}\n"
+            f"  Pygame buffer: {self._pygame_buffer}\n"
             f"  Available voices: {voices}\n"
             f"  Engines: {list(self._manager._engines.keys())}"
         )
 
     def _init_pygame(self):
         try:
-            if pygame.mixer.get_init() is not None:
-                pygame.mixer.quit()
-            pygame.mixer.init(frequency=24000, size=-16, channels=1, buffer=512)
+            if self._pygame.mixer.get_init() is not None:
+                self._pygame.mixer.quit()
+            self._pygame.mixer.init(
+                frequency=24000, size=-16, channels=1, buffer=self._pygame_buffer
+            )
             self._pygame_initialized = True
-            self.get_logger().info("Pygame mixer initialized at 24kHz")
+            self.get_logger().info(
+                f"Pygame mixer initialized at 24kHz (buffer={self._pygame_buffer})"
+            )
         except Exception as e:
             self.get_logger().warning(f"Failed to initialize pygame: {e}")
             self._pygame_initialized = False
@@ -174,7 +210,7 @@ class TTSNode(Node):
         if not self._use_pygame:
             return False
         try:
-            if pygame.mixer.get_init() is None:
+            if self._pygame.mixer.get_init() is None:
                 self.get_logger().warning("Pygame mixer died; reinitializing...")
                 self._init_pygame()
         except Exception as e:
@@ -215,6 +251,74 @@ class TTSNode(Node):
         )
         self._queue.put({"text": clean_text, "engine": engine, "voice": voice})
 
+    def _on_play_audio(self, msg: AudioChunk):
+        """Handle raw PCM audio chunks for direct playback.
+
+        Incoming chunks are accumulated and flushed as a single WAV file once
+        _audio_buffer_ms of audio has been received, or after _audio_flush_ms of
+        silence.  This avoids the per-chunk file I/O and pygame load latency that
+        causes stuttering on small cloud audio chunks.
+        """
+        threshold_reached = False
+        with self._audio_buffer_lock:
+            self._audio_buffer.extend(bytes(msg.data))
+            self._audio_chunk_sample_rate = msg.sample_rate or 24000
+            self._audio_chunk_channels = msg.channels or 1
+
+            if self._audio_buffer_timer is not None:
+                self._audio_buffer_timer.cancel()
+                self._audio_buffer_timer = None
+
+            bytes_per_second = (
+                self._audio_chunk_sample_rate * self._audio_chunk_channels * 2
+            )
+            duration_ms = (len(self._audio_buffer) / bytes_per_second) * 1000.0
+
+            if duration_ms >= self._audio_buffer_ms:
+                threshold_reached = True
+            else:
+                self._audio_buffer_timer = threading.Timer(
+                    self._audio_flush_ms / 1000.0, self._flush_audio_buffer
+                )
+                self._audio_buffer_timer.daemon = True
+                self._audio_buffer_timer.start()
+
+        if threshold_reached:
+            self._flush_audio_buffer()
+
+    def _flush_audio_buffer(self):
+        """Write accumulated audio chunks to a WAV file and queue for playback."""
+        import tempfile
+
+        try:
+            with self._audio_buffer_lock:
+                if not self._audio_buffer:
+                    return
+                buffer_copy = bytes(self._audio_buffer)
+                sample_rate = self._audio_chunk_sample_rate
+                channels = self._audio_chunk_channels
+                self._audio_buffer.clear()
+                if self._audio_buffer_timer is not None:
+                    self._audio_buffer_timer.cancel()
+                    self._audio_buffer_timer = None
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                wav_path = tmp.name
+
+            with wave.open(wav_path, "wb") as wf:
+                wf.setnchannels(channels)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(sample_rate)
+                wf.writeframes(buffer_copy)
+
+            self._queue.put({"audio_path": wav_path})
+            self.get_logger().debug(
+                f"Flushed {len(buffer_copy)} bytes of streaming audio "
+                f"({sample_rate}Hz, {channels}ch) to {wav_path}"
+            )
+        except Exception as e:
+            self.get_logger().error(f"Failed to flush audio buffer: {e}")
+
     def _queue_worker(self):
         """Background thread that processes the speech queue."""
         while not self._shutdown:
@@ -227,6 +331,16 @@ class TTSNode(Node):
                 self.get_logger().error(f"Queue worker error: {e}")
 
     def _process_request(self, req: dict):
+        # Direct audio playback if path is provided
+        if "audio_path" in req:
+            if os.path.exists(req["audio_path"]):
+                self._play_audio(req["audio_path"])
+                try:
+                    os.unlink(req["audio_path"])
+                except Exception:
+                    pass
+            return
+
         text = req["text"]
         engine = req.get("engine")
         voice = req.get("voice") or self._current_voice
@@ -271,13 +385,13 @@ class TTSNode(Node):
                 pass
 
             if self._ensure_pygame():
-                pygame.mixer.music.load(audio_path)
-                pygame.mixer.music.set_volume(self._volume)
-                pygame.mixer.music.play()
+                self._pygame.mixer.music.load(audio_path)
+                self._pygame.mixer.music.set_volume(self._volume)
+                self._pygame.mixer.music.play()
                 start_time = time.time()
-                while pygame.mixer.music.get_busy():
+                while self._pygame.mixer.music.get_busy():
                     if self._preempt_event.is_set():
-                        pygame.mixer.music.stop()
+                        self._pygame.mixer.music.stop()
                         self._preempt_event.clear()
                         self.get_logger().info("Speech preempted")
                         break
@@ -285,15 +399,15 @@ class TTSNode(Node):
                         self.get_logger().warning(
                             f"Pygame playback stalled (exceeded {max_wait:.1f}s); forcing stop"
                         )
-                        pygame.mixer.music.stop()
+                        self._pygame.mixer.music.stop()
                         # Reinit mixer to recover from bad state
                         self._init_pygame()
                         break
                     time.sleep(0.05)
                 # Unload music to free SDL resources
                 try:
-                    if hasattr(pygame.mixer.music, 'unload'):
-                        pygame.mixer.music.unload()
+                    if hasattr(self._pygame.mixer.music, 'unload'):
+                        self._pygame.mixer.music.unload()
                 except Exception:
                     pass
             else:
@@ -307,8 +421,12 @@ class TTSNode(Node):
 
     def _play_aplay(self, audio_path: str):
         try:
+            cmd = ["aplay"]
+            if self._audio_device:
+                cmd.extend(["-D", self._audio_device])
+            cmd.append(audio_path)
             proc = subprocess.Popen(
-                ["aplay", audio_path],
+                cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -328,15 +446,24 @@ class TTSNode(Node):
 
         if command in ("stop", "preempt"):
             self._preempt_event.set()
+            self._clear_audio_buffer()
             if self._pygame_initialized:
                 try:
-                    pygame.mixer.music.stop()
+                    self._pygame.mixer.music.stop()
                 except Exception:
                     pass
         elif command == "status":
             self._publish_status()
         else:
             self.get_logger().warning(f"Unknown command: {command}")
+
+    def _clear_audio_buffer(self):
+        """Discard any accumulated streaming audio chunks."""
+        with self._audio_buffer_lock:
+            self._audio_buffer.clear()
+            if self._audio_buffer_timer is not None:
+                self._audio_buffer_timer.cancel()
+                self._audio_buffer_timer = None
 
     def _on_volume(self, msg: Float32):
         self._volume = max(0.0, min(1.0, msg.data))
@@ -364,7 +491,7 @@ class TTSNode(Node):
             healthy = False
 
         try:
-            if self._use_pygame and self._pygame_initialized and pygame.mixer.get_init() is None:
+            if self._use_pygame and self._pygame_initialized and self._pygame.mixer.get_init() is None:
                 issues.append("Pygame mixer died")
                 healthy = False
         except Exception:
@@ -407,10 +534,11 @@ class TTSNode(Node):
         self._status_timer.cancel()
         self._preempt_event.set()
 
+        self._clear_audio_buffer()
         if self._pygame_initialized:
             try:
-                pygame.mixer.music.stop()
-                pygame.mixer.quit()
+                self._pygame.mixer.music.stop()
+                self._pygame.mixer.quit()
             except Exception:
                 pass
 

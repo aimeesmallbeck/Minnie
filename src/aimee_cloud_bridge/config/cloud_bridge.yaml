@@ -3,6 +3,8 @@ cloud_bridge:
     device_id: "arduino-uno-q-001"
     broker_host: "aimeecloud.com"
     broker_port: 443
+    ws_endpoint: "wss://aimeecloud.com/ws/v1"
+    api_key: "ac_paid_demo_67890"
     use_websocket: true
     websocket_path: "/aimeecloud-mqtt"
     user_name: "Scott"

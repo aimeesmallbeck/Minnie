@@ -1,0 +1,43 @@
+# Default parameters for aimee_behaviors
+animation_node:
+  ros__parameters:
+    enabled: true
+    idle_timeout_s: 60.0          # seconds of inactivity before an idle move
+    max_displacement_m: 0.15      # ~6 inches; hard safety limit before returning home
+    cmd_vel_timeout_s: 0.5        # pause animation this long after external cmd_vel
+    odom_timeout_s: 1.0
+    home_marker_id: 0
+    return_home_linear_speed_m_s: 0.03
+    return_home_angular_speed_rad_s: 0.1
+    marker_visible_timeout_s: 3.0
+    random_seed: -1               # -1 = random; >=0 for reproducible testing
+
+    # Talking animation: choose "random" small moves or classic "sway"
+    talk_animation_mode: "random"
+    talk_sway_speed_m_s: 0.015    # (only used when mode == "sway")
+    talk_sway_period_s: 2.0       # (only used when mode == "sway")
+
+    # Random talking moves: small forward/back/turn jitters while speaking
+    talk_move_distance_min_m: 0.05  # ~2 inches
+    talk_move_distance_max_m: 0.15  # ~6 inches
+    talk_turn_angle_min_deg: 5.0
+    talk_turn_angle_max_deg: 15.0
+    talk_move_speed_m_s: 0.03
+    talk_turn_speed_rad_s: 0.15     # ~8.6 deg/s
+    talk_move_interval_s: 1.5       # pause between talk moves
+
+    # Idle random-move parameters (larger exploratory motions)
+    animation_linear_speed_m_s: 0.02
+    animation_angular_speed_rad_s: 0.08
+    animation_move_duration_s: 1.0
+
+marker_localization_node:
+  ros__parameters:
+    enabled: true
+    image_topic: /camera/image_raw
+    camera_info_topic: /camera/camera_info
+    marker_size_m: 0.05           # physical width of printed ArUco marker
+    marker_dictionary: DICT_4X4_50
+    publish_debug_image: false
+    debug_image_topic: /behavior/marker_debug_image
+    detection_rate_hz: 10.0
