@@ -11,7 +11,7 @@ Usage:
   ros2 launch aimee_bringup robot.launch.py
 
   # Use a specific robot config
-  ROBOT_CONFIG=/workspace/config/robots/minnie.yaml \
+  ROBOT_CONFIG=/workspace/config/robots/bob.yaml \
     ros2 launch aimee_bringup robot.launch.py
 
   # Override software toggles for debugging
@@ -231,9 +231,15 @@ def generate_launch_description():
             'audio_playback_device': hw.get('audio', {}).get('playback_device', 'default'),
             'cloud_ws_endpoint': cloud_params.get('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
             'cloud_api_key': cloud_params.get('api_key', ''),
+            'cloud_device_id': cloud_params.get('device_id', robot_name),
             'cloud_robot_name': cloud_params.get('robot_name', robot_name),
             'cloud_robot_personality': cloud_params.get('robot_personality', 'Adorable Brat'),
             'cloud_gemini_voice': cloud_params.get('gemini_voice', 'Fenrir'),
+            'cloud_user_profile_json': json.dumps(cloud_params.get('user_profile', {})),
+            'cloud_capabilities_json': json.dumps(cloud_params.get('capabilities', {
+                "input": ["voice", "text"],
+                "output": ["tts", "display", "motors", "led"]
+            })),
             'cloud_robot_config_json': json.dumps(cloud_params.get('robot_config', {
                 "has_motors": True,
                 "has_arm": hw.get('arm', 'none') != 'none',

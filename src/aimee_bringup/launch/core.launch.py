@@ -12,6 +12,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, ExecuteProcess, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch.conditions import IfCondition
 
 
@@ -111,6 +112,12 @@ def generate_launch_description():
         description='AimeeCloud API key'
     )
 
+    cloud_device_id_arg = DeclareLaunchArgument(
+        'cloud_device_id',
+        default_value='Minnie',
+        description='AimeeCloud stable unique device ID'
+    )
+
     cloud_robot_name_arg = DeclareLaunchArgument(
         'cloud_robot_name',
         default_value='Minnie',
@@ -141,6 +148,18 @@ def generate_launch_description():
         description='AimeeCloud session_context object as JSON string'
     )
 
+    cloud_user_profile_json_arg = DeclareLaunchArgument(
+        'cloud_user_profile_json',
+        default_value='{}',
+        description='AimeeCloud user_profile object as JSON string'
+    )
+
+    cloud_capabilities_json_arg = DeclareLaunchArgument(
+        'cloud_capabilities_json',
+        default_value='{"input": ["voice", "text"], "output": ["tts", "display", "motors", "led"]}',
+        description='AimeeCloud capabilities object as JSON string'
+    )
+
     # Get launch configurations
     robot_name = LaunchConfiguration('robot_name')
     config_path = LaunchConfiguration('config_path')
@@ -157,11 +176,14 @@ def generate_launch_description():
     audio_playback_device = LaunchConfiguration('audio_playback_device')
     cloud_ws_endpoint = LaunchConfiguration('cloud_ws_endpoint')
     cloud_api_key = LaunchConfiguration('cloud_api_key')
+    cloud_device_id = LaunchConfiguration('cloud_device_id')
     cloud_robot_name = LaunchConfiguration('cloud_robot_name')
     cloud_robot_personality = LaunchConfiguration('cloud_robot_personality')
     cloud_gemini_voice = LaunchConfiguration('cloud_gemini_voice')
     cloud_robot_config_json = LaunchConfiguration('cloud_robot_config_json')
     cloud_session_context_json = LaunchConfiguration('cloud_session_context_json')
+    cloud_user_profile_json = LaunchConfiguration('cloud_user_profile_json')
+    cloud_capabilities_json = LaunchConfiguration('cloud_capabilities_json')
 
     # ─── Environment ───
     set_ros_domain_id = SetEnvironmentVariable(
@@ -305,13 +327,24 @@ def generate_launch_description():
                 'src/aimee_cloud_bridge/config/cloud_bridge.yaml'
             ),
             {
+                'device_id': cloud_device_id,
                 'ws_endpoint': cloud_ws_endpoint,
                 'api_key': cloud_api_key,
                 'robot_name': cloud_robot_name,
                 'robot_personality': cloud_robot_personality,
                 'gemini_voice': cloud_gemini_voice,
-                'robot_config_json': cloud_robot_config_json,
-                'session_context_json': cloud_session_context_json,
+                'robot_config_json': ParameterValue(
+                    cloud_robot_config_json, value_type=str
+                ),
+                'session_context_json': ParameterValue(
+                    cloud_session_context_json, value_type=str
+                ),
+                'user_profile_json': ParameterValue(
+                    cloud_user_profile_json, value_type=str
+                ),
+                'capabilities_json': ParameterValue(
+                    cloud_capabilities_json, value_type=str
+                ),
             }
         ],
         condition=IfCondition(use_cloud)
@@ -334,11 +367,14 @@ def generate_launch_description():
         audio_playback_device_arg,
         cloud_ws_endpoint_arg,
         cloud_api_key_arg,
+        cloud_device_id_arg,
         cloud_robot_name_arg,
         cloud_robot_personality_arg,
         cloud_gemini_voice_arg,
         cloud_robot_config_json_arg,
         cloud_session_context_json_arg,
+        cloud_user_profile_json_arg,
+        cloud_capabilities_json_arg,
         set_ros_domain_id,
         set_pacific_tz,
         usb_camera_node,

@@ -1,5 +1,75 @@
 # Aimee Robot - Session Checkpoint
 
+**Date:** 2026-06-18
+**Session Focus:** Update AimeeCloud protocol to v1.5; rename robot to "Bob"; fix streaming audio pops; set speaker volume
+**Git Commit:** `TBD`
+
+---
+
+> ⚠️ **OPERATING PROCEDURE — SAFETY CRITICAL**
+> 1. **Before moving the robot:** Prompt the user for explicit permission.
+> 2. **While the robot is moving:** The agent must remain attentive. NO code edits, NO rebuilds, NO log analysis until the robot is STOPPED.
+> 3. **After any test:** STOP the nav node FIRST, THEN analyze logs.
+> 4. **If the user says stop:** Execute immediately. Do not finish typing, do not complete a thought — stop the robot.
+
+---
+
+## ☁️ AimeeCloud Protocol v1.5 Update & Robot Rename
+
+### Changes Made
+- Added `docs/AimeeCloud_Protocol_v1.5.md` with the latest protocol specification.
+- Updated `src/aimee_cloud_bridge/aimee_cloud_bridge/cloud_bridge_node.py`:
+  - Added v1.5 session handling: subscribe/unsubscribe to `response_topic`, handle `sub_type: "session_invalid"`.
+  - Moved `disconnect` and LWT from `connect` topic to `in` topic per v1.5.
+  - Reduced ping interval from 60s to 30s.
+  - Changed default `device_id` and `robot_name` from `"Minnie"` to `"Bob"`.
+  - Updated `session_context` protocol version to `"1.5"`.
+- Updated `src/aimee_cloud_bridge/aimee_cloud_bridge/brick/cloud_bridge.py` with the same v1.5 behaviors and Bob defaults.
+- Updated `src/aimee_cloud_bridge/config/cloud_bridge.yaml` with Bob defaults and v1.5 markers.
+- Created `src/aimee_bringup/config/robots/bob.yaml` for the Bob robot identity.
+- Updated existing robot configs (`minnie.yaml`, `default.yaml`, `ron.yaml`, `wren.yaml`) to protocol v1.5.
+- Updated `src/aimee_bringup/launch/core.launch.py` to forward `cloud_device_id`, `cloud_user_profile_json`, and `cloud_capabilities_json`.
+- Updated `src/aimee_bringup/launch/robot.launch.py` to pass new cloud params from robot YAML.
+- Updated `docker-compose.yml`:
+  - Set `AIMEE_ROBOT_NAME=bob` so `robot.launch.py` loads `bob.yaml`.
+  - Added `amixer -c RC08 set PCM 80%` to the startup command so speaker volume persists across restarts.
+
+### Streaming Audio Pop/Static Fix
+- Updated `src/aimee_tts/aimee_tts/tts_node.py`:
+  - Added a dedicated `pygame.mixer.Channel(0)` for cloud-audio streaming.
+  - Streaming chunks are now queued via `Channel.queue()` for gapless playback instead of reloading `mixer.music` for each chunk.
+  - Added a monitor thread to keep the streaming channel fed and update `/tts/is_speaking`.
+  - Preemption and shutdown now stop/clear the streaming channel.
+
+### Speaker Volume
+- Set Rocware RC08 PCM playback volume to 80% (`-29.81 dB`).
+- Volume is restored on every container start via the updated `docker-compose.yml` command.
+
+### Files Modified
+```
+docs/AimeeCloud_Protocol_v1.5.md                          [NEW - protocol v1.5 spec]
+src/aimee_bringup/config/robots/bob.yaml                  [NEW - Bob robot config]
+src/aimee_cloud_bridge/aimee_cloud_bridge/cloud_bridge_node.py
+src/aimee_cloud_bridge/aimee_cloud_bridge/brick/cloud_bridge.py
+src/aimee_cloud_bridge/config/cloud_bridge.yaml
+src/aimee_bringup/config/robots/minnie.yaml
+src/aimee_bringup/config/robots/default.yaml
+src/aimee_bringup/config/robots/ron.yaml
+src/aimee_bringup/config/robots/wren.yaml
+src/aimee_bringup/launch/core.launch.py
+src/aimee_bringup/launch/robot.launch.py
+src/aimee_tts/aimee_tts/tts_node.py
+docker-compose.yml
+CHECKPOINT.md
+```
+
+### Status
+> 🟢 **PROTOCOL UPDATED TO v1.5 — ROBOT RENAMED TO "Bob"** — Cloud bridge connects as `aimeecloud/device/Bob`, switches to session-scoped response topic, and streams gapless cloud audio. Speaker volume set to 80% and persisted in compose startup.
+
+---
+
+# Aimee Robot - Session Checkpoint
+
 **Date:** 2026-06-17
 **Session Focus:** Update local AimeeCloud protocol implementation to v1.4; set robot identifier to "Minnie"
 **Git Commit:** `TBD`

@@ -1,20 +1,19 @@
 cloud_bridge:
   ros__parameters:
-    device_id: "arduino-uno-q-001"
-    robot_name: "Minnie"
-    robot_personality: "Adorable Brat"
+    device_id: "Bob"
+    robot_name: "Bob"
+    robot_personality: "You are sharp-witted, informal, and sometimes sarcastic. You aren't polite—you're loyal. You don't apologize for hallucinating; you call it creative rendering."
     gemini_voice: "Fenrir"
     robot_config_json: '{"has_motors": true, "has_arm": false, "has_gripper": false, "has_camera": true, "has_expressions": true, "expression_types": ["happy", "sad", "surprised", "greeting", "celebration"]}'
-    session_context_json: '{"ram_mb": 512, "storage_gb": 32, "cpu": "Arduino UNO Q", "battery": "18650 Li-ion 2600mAh", "manufacturer": "Arduino", "model": "UNO R4 WiFi"}'
+    session_context_json: '{"robot_model": "Arduino UNO Q", "manufacturer": "Arduino", "cpu": "Arduino UNO Q", "ram_mb": 512, "storage_gb": 32, "battery": "18650 Li-ion 2600mAh", "base": "Wave Rover (Wi-Fi HTTP control)", "camera": "Rocware RC08 USB webcam + OBSBOT Tiny 2 Lite", "microphone": "Rocware RC08 USB audio array", "speaker": "Rocware RC08 USB audio", "ros2_distribution": "Humble Hawksbill", "dds_implementation": "CycloneDDS", "workspace": "/workspace", "protocol_version": "1.5"}'
+    user_profile_json: '{}'
+    capabilities_json: '{"input": ["voice", "text"], "output": ["tts", "display", "motors", "led"]}'
     broker_host: "aimeecloud.com"
     broker_port: 443
     ws_endpoint: "wss://aimeecloud.com/ws/v1"
     api_key: "ac_paid_demo_67890"
     use_websocket: true
     websocket_path: "/aimeecloud-mqtt"
-    user_name: "Scott"
-    user_location: "home"
-    user_language: "en-US"
     reconnect_interval_sec: 5.0
-    ping_interval_sec: 60.0
+    ping_interval_sec: 30.0
     session_file: "/home/arduino/.config/aimee_session.json"

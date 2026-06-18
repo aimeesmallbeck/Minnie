@@ -46,22 +46,20 @@ class CloudBridgeBrick:
     
     def __init__(
         self,
-        device_id: str = "arduino-uno-q-001",
-        robot_name: str = "Minnie",
-        robot_personality: str = "Adorable Brat",
+        device_id: str = "Bob",
+        robot_name: str = "Bob",
+        robot_personality: str = "You are sharp-witted, informal, and sometimes sarcastic. You aren't polite—you're loyal. You don't apologize for hallucinating; you call it creative rendering.",
         gemini_voice: str = "Fenrir",
         robot_config: Optional[Dict[str, Any]] = None,
         session_context: Optional[Dict[str, Any]] = None,
+        user_profile: Optional[Dict[str, Any]] = None,
+        capabilities: Optional[Dict[str, Any]] = None,
         broker_host: str = "aimeecloud.com",
         broker_port: int = 1883,
         use_websocket: bool = False,
         websocket_path: str = "/aimeecloud-mqtt",
-        user_name: str = "Scott",
-        user_location: str = "home",
-        user_language: str = "en-US",
-        capabilities: Optional[Dict[str, Any]] = None,
         reconnect_interval_sec: float = 5.0,
-        ping_interval_sec: float = 60.0,
+        ping_interval_sec: float = 30.0,
         session_file: str = "/home/arduino/.config/aimee_session.json",
         on_chat_response: Optional[Callable[[str], None]] = None,
         on_game_update: Optional[Callable[[Dict[str, Any], str], None]] = None,
@@ -83,20 +81,26 @@ class CloudBridgeBrick:
             "expression_types": ["happy", "sad", "surprised", "greeting", "celebration"]
         }
         self.session_context = session_context or {
+            "robot_model": "Arduino UNO Q",
+            "manufacturer": "Arduino",
+            "cpu": "Arduino UNO Q",
             "ram_mb": 512,
             "storage_gb": 32,
-            "cpu": "Arduino UNO Q",
             "battery": "18650 Li-ion 2600mAh",
-            "manufacturer": "Arduino",
-            "model": "UNO R4 WiFi"
+            "base": "Wave Rover (Wi-Fi HTTP control)",
+            "camera": "Rocware RC08 USB webcam + OBSBOT Tiny 2 Lite",
+            "microphone": "Rocware RC08 USB audio array",
+            "speaker": "Rocware RC08 USB audio",
+            "ros2_distribution": "Humble Hawksbill",
+            "dds_implementation": "CycloneDDS",
+            "workspace": "/workspace",
+            "protocol_version": "1.5"
         }
+        self.user_profile = user_profile or {}
         self.broker_host = broker_host
         self.broker_port = broker_port
         self.use_websocket = use_websocket
         self.websocket_path = websocket_path
-        self.user_name = user_name
-        self.user_location = user_location
-        self.user_language = user_language
         self.capabilities = capabilities or {
             "input": ["voice", "text"],
             "output": ["tts", "display", "motors", "led"]
@@ -116,6 +120,7 @@ class CloudBridgeBrick:
         # State
         self._initialized = False
         self._session_id: Optional[str] = None
+        self._response_topic: Optional[str] = None
         self._connected = False
         self._mqtt_client: Optional[mqtt.Client] = None
         self._reconnect_task: Optional[asyncio.Task] = None
@@ -153,8 +158,8 @@ class CloudBridgeBrick:
         self._mqtt_client.on_disconnect = self._on_disconnect
         self._mqtt_client.on_message = self._on_message
         
-        # Set LWT for unexpected disconnects
-        disconnect_topic = f"aimeecloud/device/{self.device_id}/connect"
+        # Set LWT for unexpected disconnects (v1.5: disconnect belongs on 'in')
+        disconnect_topic = f"aimeecloud/device/{self.device_id}/in"
         disconnect_payload = json.dumps({
             "type": "disconnect",
             "device_id": self.device_id,
@@ -208,13 +213,21 @@ class CloudBridgeBrick:
             logger.error(f"Failed to save session: {e}")
     
     def _clear_session(self):
-        """Clear stored session ID."""
+        """Clear stored session ID and unsubscribe from stale response topic."""
+        old_response_topic = self._response_topic
         if os.path.exists(self.session_file):
             try:
                 os.remove(self.session_file)
             except Exception:
                 pass
         self._session_id = None
+        self._response_topic = None
+        if old_response_topic and self._mqtt_client and self._connected:
+            try:
+                self._mqtt_client.unsubscribe(old_response_topic)
+                logger.info(f"Unsubscribed from stale response topic {old_response_topic}")
+            except Exception:
+                pass
         if self._on_session_id:
             self._on_session_id("")
         logger.info("Session cleared")
@@ -283,9 +296,24 @@ class CloudBridgeBrick:
         
         if msg_type == "session_init":
             session_id = payload.get("session_id")
+            response_topic = payload.get("response_topic")
             if session_id:
                 self._save_session(session_id)
                 logger.info(f"Session initialized: {session_id}")
+            if response_topic:
+                self._response_topic = response_topic
+                try:
+                    self._mqtt_client.subscribe(response_topic, qos=1)
+                    self._mqtt_client.unsubscribe(
+                        f"aimeecloud/device/{self.device_id}/out"
+                    )
+                    logger.info(f"Switched to session-scoped responses on {response_topic}")
+                except Exception as e:
+                    logger.warning(f"Failed to switch to session-scoped response topic: {e}")
+            else:
+                logger.warning(
+                    "No response_topic in session_init; using legacy device-wide out topic"
+                )
             return
         
         if msg_type != "response":
@@ -318,7 +346,12 @@ class CloudBridgeBrick:
         
         elif sub_type == "pong":
             logger.debug("Received pong from cloud")
-        
+
+        elif sub_type == "session_invalid":
+            logger.warning("Session invalid; clearing session and reconnecting")
+            self._clear_session()
+            self._publish_connect()
+
         elif sub_type == "error":
             error_code = payload.get("error", "UNKNOWN")
             if error_code == "SESSION_NOT_FOUND":
@@ -400,11 +433,7 @@ class CloudBridgeBrick:
             "robot_name": self.robot_name,
             "robot_personality": self.robot_personality,
             "gemini_voice": self.gemini_voice,
-            "user_profile": {
-                "name": self.user_name,
-                "location": self.user_location,
-                "language": self.user_language
-            },
+            "user_profile": self.user_profile,
             "capabilities": self.capabilities,
             "robot_config": self.robot_config,
             "session_context": self.session_context,
@@ -505,9 +534,9 @@ class CloudBridgeBrick:
         logger.info("Shutting down CloudBridgeBrick...")
         self._shutdown_event.set()
         
-        # Publish graceful disconnect
+        # Publish graceful disconnect (v1.5: disconnect belongs on 'in')
         if self._mqtt_client and self._connected:
-            topic = f"aimeecloud/device/{self.device_id}/connect"
+            topic = f"aimeecloud/device/{self.device_id}/in"
             payload = {
                 "type": "disconnect",
                 "device_id": self.device_id,

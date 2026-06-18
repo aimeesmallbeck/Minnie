@@ -1,6 +1,6 @@
-# Minnie — Arduino UNO Q #2 (Base + Camera, no arm)
+# Bob — Arduino UNO Q #2 (Base + Camera, no arm)
 
-robot_name: "minnie"
+robot_name: "bob"
 
 hardware:
   base: "wave_rover"
@@ -40,8 +40,8 @@ software:
   cloud_params:
     ws_endpoint: "wss://aimeecloud.com/ws/v1"
     api_key: "ac_paid_demo_67890"
-    device_id: "Minnie"
-    robot_name: "Minnie"
+    device_id: "Bob"
+    robot_name: "Bob"
     robot_personality: "You are sharp-witted, informal, and sometimes sarcastic. You aren't polite—you're loyal. You don't apologize for hallucinating; you call it creative rendering."
     gemini_voice: "Fenrir"
     user_profile: {}

@@ -47,23 +47,22 @@ class AimeeCloudClientNode(Node):
 
         # Parameters
         self.declare_parameters(namespace='', parameters=[
-            ('device_id', 'arduino-uno-q-001'),
-            ('robot_name', 'Minnie'),
-            ('robot_personality', 'Adorable Brat'),
+            ('device_id', 'Bob'),
+            ('robot_name', 'Bob'),
+            ('robot_personality', "You are sharp-witted, informal, and sometimes sarcastic. You aren't polite—you're loyal. You don't apologize for hallucinating; you call it creative rendering."),
             ('gemini_voice', 'Fenrir'),
             ('robot_config_json', '{}'),
             ('session_context_json', '{}'),
+            ('user_profile_json', '{}'),
+            ('capabilities_json', '{"input": ["voice", "text"], "output": ["tts", "display", "motors", "led"]}'),
             ('broker_host', 'aimeecloud.com'),
             ('broker_port', 443),
             ('ws_endpoint', 'wss://aimeecloud.com/ws/v1'),
             ('api_key', ''),
             ('use_websocket', True),
             ('websocket_path', '/aimeecloud-mqtt'),
-            ('user_name', 'Scott'),
-            ('user_location', 'home'),
-            ('user_language', 'en-US'),
             ('reconnect_interval_sec', 5.0),
-            ('ping_interval_sec', 60.0),
+            ('ping_interval_sec', 30.0),
             ('session_file', '/home/arduino/.config/aimee_session.json'),
             ('snapshot_resolution', '640x480'),
             ('snapshot_quality', 85),
@@ -82,12 +81,25 @@ class AimeeCloudClientNode(Node):
             "expression_types": ["happy", "sad", "surprised", "greeting", "celebration"]
         })
         self._session_context = self._parse_json_param('session_context_json', default={
+            "robot_model": "Arduino UNO Q",
+            "manufacturer": "Arduino",
+            "cpu": "Arduino UNO Q",
             "ram_mb": 512,
             "storage_gb": 32,
-            "cpu": "Arduino UNO Q",
             "battery": "18650 Li-ion 2600mAh",
-            "manufacturer": "Arduino",
-            "model": "UNO R4 WiFi"
+            "base": "Wave Rover (Wi-Fi HTTP control)",
+            "camera": "Rocware RC08 USB webcam + OBSBOT Tiny 2 Lite",
+            "microphone": "Rocware RC08 USB audio array",
+            "speaker": "Rocware RC08 USB audio",
+            "ros2_distribution": "Humble Hawksbill",
+            "dds_implementation": "CycloneDDS",
+            "workspace": "/workspace",
+            "protocol_version": "1.5"
+        })
+        self._user_profile = self._parse_json_param('user_profile_json', default={})
+        self._capabilities = self._parse_json_param('capabilities_json', default={
+            "input": ["voice", "text"],
+            "output": ["tts", "display", "motors", "led"]
         })
         self._broker_host = self.get_parameter('broker_host').value
         self._broker_port = self.get_parameter('broker_port').value
@@ -97,26 +109,15 @@ class AimeeCloudClientNode(Node):
         self._api_key = self.get_parameter('api_key').value or os.environ.get('LEMONFOX_API_KEY', '')
         self._use_websocket = self.get_parameter('use_websocket').value
         self._websocket_path = self.get_parameter('websocket_path').value
-        self._user_name = self.get_parameter('user_name').value
-        self._user_location = self.get_parameter('user_location').value
-        self._user_language = self.get_parameter('user_language').value
         self._reconnect_interval_sec = self.get_parameter('reconnect_interval_sec').value
         self._ping_interval_sec = self.get_parameter('ping_interval_sec').value
         self._session_file = self.get_parameter('session_file').value
         self._snapshot_resolution = self.get_parameter('snapshot_resolution').value
         self._snapshot_quality = self.get_parameter('snapshot_quality').value
 
-        # Capabilities align with AimeeCloud Protocol v1.4
-        # TODO: Make capabilities dynamic based on active ROS2 nodes
-        # e.g., scan node graph for /ugv02_controller -> add "motors",
-        #       /arm_controller -> add "arm", /obsbot_camera + /camera -> add "snapshot", etc.
-        self._capabilities = {
-            "input": ["voice", "text"],
-            "output": ["tts", "display", "motors", "led"]
-        }
-
         # State
         self._session_id: str = ""
+        self._response_topic: str = ""
         self._connected = False
         self._mqtt_client = None
         self._state_lock = threading.Lock()
@@ -241,8 +242,20 @@ class AimeeCloudClientNode(Node):
             except Exception:
                 pass
         with self._state_lock:
+            old_response_topic = self._response_topic
             self._session_id = ""
+            self._response_topic = ""
         self._session_id_pub.publish(String(data=""))
+        # Unsubscribe from the old session-scoped response topic so stale
+        # messages from the invalidated session do not leak through.
+        if old_response_topic and self._mqtt_client and self._connected:
+            try:
+                self._mqtt_client.unsubscribe(old_response_topic)
+                self.get_logger().info(
+                    f"Unsubscribed from stale response topic {old_response_topic}"
+                )
+            except Exception:
+                pass
         self.get_logger().info("Session cleared")
 
     def _init_mqtt(self):
@@ -262,8 +275,8 @@ class AimeeCloudClientNode(Node):
         self._mqtt_client.on_disconnect = self._on_mqtt_disconnect
         self._mqtt_client.on_message = self._on_mqtt_message
 
-        # LWT
-        disconnect_topic = f"aimeecloud/device/{self._device_id}/connect"
+        # LWT: disconnect belongs on the 'in' topic in v1.5
+        disconnect_topic = f"aimeecloud/device/{self._device_id}/in"
         disconnect_payload = json.dumps({
             "type": "disconnect",
             "device_id": self._device_id,
@@ -339,11 +352,31 @@ class AimeeCloudClientNode(Node):
 
         if msg_type == "session_init":
             session_id = payload.get("session_id")
+            response_topic = payload.get("response_topic")
             if session_id:
                 self._save_session(session_id)
                 self.get_logger().info(f"Session initialized: {session_id}")
-                # Start audio WebSocket now that we have a session
-                self._start_audio_ws()
+            if response_topic:
+                with self._state_lock:
+                    self._response_topic = response_topic
+                try:
+                    self._mqtt_client.subscribe(response_topic, qos=1)
+                    self._mqtt_client.unsubscribe(
+                        f"aimeecloud/device/{self._device_id}/out"
+                    )
+                    self.get_logger().info(
+                        f"Switched to session-scoped responses on {response_topic}"
+                    )
+                except Exception as e:
+                    self.get_logger().warning(
+                        f"Failed to switch to session-scoped response topic: {e}"
+                    )
+            else:
+                self.get_logger().warning(
+                    "No response_topic in session_init; using legacy device-wide out topic"
+                )
+            # Start audio WebSocket now that we have a session
+            self._start_audio_ws()
             return
 
         if msg_type == "snapshot_request":
@@ -384,6 +417,12 @@ class AimeeCloudClientNode(Node):
             self.get_logger().info(f"AimeeAgent response handled with {len(commands)} commands")
         elif sub_type == "pong":
             self.get_logger().debug("Received pong from cloud")
+        elif sub_type == "session_invalid":
+            self.get_logger().warning(
+                "Session invalid; clearing session and reconnecting"
+            )
+            self._clear_session()
+            self._publish_connect()
         elif sub_type == "error":
             error_code = payload.get("error", "UNKNOWN")
             if error_code == "SESSION_NOT_FOUND":
@@ -448,11 +487,7 @@ class AimeeCloudClientNode(Node):
             "robot_name": self._robot_name,
             "robot_personality": self._robot_personality,
             "gemini_voice": self._gemini_voice,
-            "user_profile": {
-                "name": self._user_name,
-                "location": self._user_location,
-                "language": self._user_language
-            },
+            "user_profile": self._user_profile,
             "capabilities": self._capabilities,
             "robot_config": self._robot_config,
             "session_context": self._session_context,
@@ -694,7 +729,20 @@ class AimeeCloudClientNode(Node):
             self.get_logger().error(f"Error streaming audio to cloud WebSocket: {e}")
 
     def _speak_response(self, text: str, voice: dict = None, voice_segments: list = None):
-        """Publish TTS text, optionally with voice metadata from AimeeCloud."""
+        """Publish TTS text, optionally with voice metadata from AimeeCloud.
+
+        When native cloud audio streaming is active, the cloud's spoken response
+        arrives as raw PCM chunks on /tts/play_audio. Publishing the same text
+        to /tts/speak would cause a local TTS voice to overlap the cloud voice,
+        so we suppress local TTS while the audio WebSocket is connected.
+        """
+        if self._audio_ws_connected:
+            if voice_segments or text:
+                self.get_logger().debug(
+                    "Cloud audio streaming active; suppressing local TTS for cloud response"
+                )
+            return
+
         if voice_segments:
             for segment in voice_segments:
                 seg_text = segment.get("text", "")
@@ -1058,7 +1106,7 @@ class AimeeCloudClientNode(Node):
 
         if self._mqtt_client:
             try:
-                topic = f"aimeecloud/device/{self._device_id}/connect"
+                topic = f"aimeecloud/device/{self._device_id}/in"
                 payload = {
                     "type": "disconnect",
                     "device_id": self._device_id,

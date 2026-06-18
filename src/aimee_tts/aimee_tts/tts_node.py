@@ -157,6 +157,11 @@ class TTSNode(Node):
         self._audio_chunk_sample_rate = 24000
         self._audio_chunk_channels = 1
 
+        # Gapless streaming playback state
+        self._stream_channel = None
+        self._stream_sounds: queue.Queue = queue.Queue()
+        self._stream_sounds_lock = threading.Lock()
+
         # Configure ALSA device for pygame/SDL before importing pygame
         if self._audio_device and self._audio_device != "default":
             os.environ["SDL_AUDIODRIVER"] = "alsa"
@@ -174,6 +179,12 @@ class TTSNode(Node):
         # Start worker thread
         self._worker_thread = threading.Thread(target=self._queue_worker, daemon=True)
         self._worker_thread.start()
+
+        # Start streaming monitor thread for gapless channel playback
+        self._stream_monitor_thread = threading.Thread(
+            target=self._stream_monitor, daemon=True
+        )
+        self._stream_monitor_thread.start()
 
         # Status timer
         self._status_timer = self.create_timer(1.0, self._publish_status)
@@ -198,6 +209,9 @@ class TTSNode(Node):
                 frequency=24000, size=-16, channels=1, buffer=self._pygame_buffer
             )
             self._pygame_initialized = True
+            # Use a dedicated mixer channel for gapless cloud-audio streaming.
+            # mixer.music is kept for local TTS utterances.
+            self._stream_channel = self._pygame.mixer.Channel(0)
             self.get_logger().info(
                 f"Pygame mixer initialized at 24kHz (buffer={self._pygame_buffer})"
             )
@@ -311,7 +325,7 @@ class TTSNode(Node):
                 wf.setframerate(sample_rate)
                 wf.writeframes(buffer_copy)
 
-            self._queue.put({"audio_path": wav_path})
+            self._queue.put({"audio_path": wav_path, "streaming": True})
             self.get_logger().debug(
                 f"Flushed {len(buffer_copy)} bytes of streaming audio "
                 f"({sample_rate}Hz, {channels}ch) to {wav_path}"
@@ -334,7 +348,10 @@ class TTSNode(Node):
         # Direct audio playback if path is provided
         if "audio_path" in req:
             if os.path.exists(req["audio_path"]):
-                self._play_audio(req["audio_path"])
+                if req.get("streaming"):
+                    self._queue_streaming_audio(req["audio_path"])
+                else:
+                    self._play_audio(req["audio_path"])
                 try:
                     os.unlink(req["audio_path"])
                 except Exception:
@@ -419,6 +436,93 @@ class TTSNode(Node):
         finally:
             self._is_speaking = False
 
+    def _queue_streaming_audio(self, audio_path: str):
+        """Queue a streaming audio WAV for gapless channel playback."""
+        try:
+            if not self._ensure_pygame() or not self._stream_channel:
+                self.get_logger().warning(
+                    "Pygame streaming channel not available; falling back to mixer.music"
+                )
+                self._play_audio(audio_path)
+                return
+
+            sound = self._pygame.mixer.Sound(audio_path)
+            sound.set_volume(self._volume)
+            with self._stream_sounds_lock:
+                self._stream_sounds.put(sound)
+            self._is_speaking = True
+            self._drain_stream_queue()
+        except Exception as e:
+            self.get_logger().error(f"Failed to queue streaming audio: {e}")
+
+    def _drain_stream_queue(self):
+        """Start or queue the next streaming Sound on the dedicated channel.
+
+        pygame's Channel.queue() plays the queued Sound immediately after the
+        current one finishes, which avoids the gaps/clicks caused by reloading
+        mixer.music for each chunk.
+        """
+        if not self._stream_channel or not self._pygame.mixer.get_init():
+            return
+
+        try:
+            with self._stream_sounds_lock:
+                # If nothing is playing, start the next sound.
+                if not self._stream_channel.get_busy():
+                    try:
+                        sound = self._stream_sounds.get_nowait()
+                        self._stream_channel.play(sound)
+                    except queue.Empty:
+                        return
+
+                # If no sound is already queued, queue the next one.
+                if not self._stream_channel.get_queue():
+                    try:
+                        sound = self._stream_sounds.get_nowait()
+                        self._stream_channel.queue(sound)
+                    except queue.Empty:
+                        return
+        except Exception as e:
+            self.get_logger().debug(f"Stream drain error: {e}")
+
+    def _stream_monitor(self):
+        """Background thread that keeps the streaming channel fed and updates
+        the speaking flag.
+        """
+        while not self._shutdown:
+            try:
+                if self._stream_channel and self._pygame.mixer.get_init():
+                    self._drain_stream_queue()
+                    if self._stream_channel.get_busy() or not self._stream_sounds.empty():
+                        self._is_speaking = True
+                    else:
+                        self._is_speaking = False
+                else:
+                    # If pygame died, clear any pending streaming sounds.
+                    with self._stream_sounds_lock:
+                        while not self._stream_sounds.empty():
+                            try:
+                                self._stream_sounds.get_nowait()
+                            except queue.Empty:
+                                break
+            except Exception as e:
+                self.get_logger().debug(f"Stream monitor error: {e}")
+            time.sleep(0.02)
+
+    def _stop_streaming_channel(self):
+        """Stop the streaming channel and discard queued sounds."""
+        if self._stream_channel and self._pygame.mixer.get_init():
+            try:
+                self._stream_channel.stop()
+            except Exception:
+                pass
+        with self._stream_sounds_lock:
+            while not self._stream_sounds.empty():
+                try:
+                    self._stream_sounds.get_nowait()
+                except queue.Empty:
+                    break
+
     def _play_aplay(self, audio_path: str):
         try:
             cmd = ["aplay"]
@@ -447,6 +551,7 @@ class TTSNode(Node):
         if command in ("stop", "preempt"):
             self._preempt_event.set()
             self._clear_audio_buffer()
+            self._stop_streaming_channel()
             if self._pygame_initialized:
                 try:
                     self._pygame.mixer.music.stop()
@@ -535,6 +640,7 @@ class TTSNode(Node):
         self._preempt_event.set()
 
         self._clear_audio_buffer()
+        self._stop_streaming_channel()
         if self._pygame_initialized:
             try:
                 self._pygame.mixer.music.stop()
@@ -542,9 +648,11 @@ class TTSNode(Node):
             except Exception:
                 pass
 
-        # Allow worker to exit
+        # Allow worker and monitor threads to exit
         if self._worker_thread.is_alive():
             self._worker_thread.join(timeout=2.0)
+        if getattr(self, '_stream_monitor_thread', None) and self._stream_monitor_thread.is_alive():
+            self._stream_monitor_thread.join(timeout=0.5)
 
         super().destroy_node()
         self.get_logger().info("Shutdown complete")

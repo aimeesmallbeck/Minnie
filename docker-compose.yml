@@ -26,6 +26,7 @@ services:
       - FASTRTPS_DEFAULT_PROFILES_FILE=
       - FASTRTPS_PROFILE=
       - AIMEE_ROBOT_WS=/workspace
+      - AIMEE_ROBOT_NAME=bob
       - LEMONFOX_API_KEY=${LEMONFOX_API_KEY:-}
       - AIMEE_CLOUD_ENDPOINT=${AIMEE_CLOUD_ENDPOINT:-https://aimeecloud.com}
     
@@ -63,7 +64,7 @@ services:
     
     # Production command: launch the robot stack with voice streaming and monitor
     command: >
-      bash -c "source /opt/ros/humble/setup.bash && source /workspace/install/setup.bash && ros2 launch aimee_bringup robot.launch.py use_monitor:=true use_voice:=true use_cloud:=true use_tts:=true use_llm:=false"
+      bash -c "amixer -c RC08 set PCM 80% && source /opt/ros/humble/setup.bash && source /workspace/install/setup.bash && ros2 launch aimee_bringup robot.launch.py use_monitor:=true use_voice:=true use_cloud:=true use_tts:=true use_llm:=false"
 
     stdin_open: true
     tty: true
