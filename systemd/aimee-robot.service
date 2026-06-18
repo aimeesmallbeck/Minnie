@@ -1,6 +1,6 @@
 [Unit]
 Description=Aimee Robot Core Service (Docker)
-Documentation=https://github.com/aimeesmallbeck/AimeeCloud
+Documentation=https://github.com/aimeesmallbeck/Minnie
 After=docker.service network.target sound.target
 Wants=docker.service network.target
 

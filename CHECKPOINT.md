@@ -1,7 +1,7 @@
 # Aimee Robot - Session Checkpoint
 
 **Date:** 2026-06-18
-**Session Focus:** Update AimeeCloud protocol to v1.5; rename robot to "Bob"; fix streaming audio pops; set speaker volume
+**Session Focus:** Update AimeeCloud protocol to v1.5; rename robot to "Bob"; fix streaming audio pops; set speaker volume; switch primary GitHub remote to Minnie.git
 **Git Commit:** `TBD`
 
 ---
@@ -41,9 +41,14 @@
   - Added a monitor thread to keep the streaming channel fed and update `/tts/is_speaking`.
   - Preemption and shutdown now stop/clear the streaming channel.
 
-### Speaker Volume
+:### Speaker Volume
 - Set Rocware RC08 PCM playback volume to 80% (`-29.81 dB`).
 - Volume is restored on every container start via the updated `docker-compose.yml` command.
+
+### Repository Configuration
+- Removed `origin` remote pointing to `aimeesmallbeck/AimeeCloud.git`.
+- Renamed `minnie` remote to `origin` so `https://github.com/aimeesmallbeck/Minnie.git` is the primary remote.
+- Updated `deploy/bootstrap.sh`, `deploy/push-public.sh`, `README.md`, `systemd/aimee-robot.service`, and `AGENTS.md` to reference the Minnie repo.
 
 ### Files Modified
 ```
@@ -60,11 +65,16 @@ src/aimee_bringup/launch/core.launch.py
 src/aimee_bringup/launch/robot.launch.py
 src/aimee_tts/aimee_tts/tts_node.py
 docker-compose.yml
+deploy/bootstrap.sh
+deploy/push-public.sh
+systemd/aimee-robot.service
+README.md
+AGENTS.md
 CHECKPOINT.md
 ```
 
 ### Status
-> 🟢 **PROTOCOL UPDATED TO v1.5 — ROBOT RENAMED TO "Bob"** — Cloud bridge connects as `aimeecloud/device/Bob`, switches to session-scoped response topic, and streams gapless cloud audio. Speaker volume set to 80% and persisted in compose startup.
+> 🟢 **PROTOCOL UPDATED TO v1.5 — ROBOT RENAMED TO "Bob" — PRIMARY REMOTE SET TO Minnie.git** — Cloud bridge connects as `aimeecloud/device/Bob`, switches to session-scoped response topic, and streams gapless cloud audio. Speaker volume set to 80% and persisted in compose startup.
 
 ---
 

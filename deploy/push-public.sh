@@ -1,5 +1,5 @@
 #!/bin/bash
-# Aimee Robot - Push clean deployment code to public AimeeCloud repo
+# Aimee Robot - Push main branch to the primary GitHub repo
 #
 # Usage:
 #   bash deploy/push-public.sh
@@ -8,14 +8,14 @@ set -e
 
 cd "$HOME/aimee-robot-ws"
 
-echo "Pushing clean deployment code to AimeeCloud (public)..."
+echo "Pushing main branch to origin (Minnie)..."
 
 # Ensure we're on main
 git checkout main
 
-# Push to public remote
-git push public main
+# Push to origin remote
+git push origin main
 
 echo ""
-echo "Public push complete!"
-echo "View at: https://github.com/aimeesmallbeck/AimeeCloud"
+echo "Push complete!"
+echo "View at: https://github.com/aimeesmallbeck/Minnie"

@@ -3,7 +3,7 @@
 # Run this on a fresh Arduino UNO Q to provision the entire ROS2 stack.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/aimeesmallbeck/Aimee-Project/main/deploy/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/aimeesmallbeck/Minnie/main/deploy/bootstrap.sh | bash
 #   # Or, if cloned locally:
 #   bash deploy/bootstrap.sh
 
@@ -11,7 +11,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"
-REPO_URL="https://github.com/aimeesmallbeck/AimeeCloud.git"
+REPO_URL="https://github.com/aimeesmallbeck/Minnie.git"
 # Set these to rsync large/binary files from your first board (Ron)
 MODELS_SOURCE=""   # e.g. "arduino@10.0.0.156:/home/arduino/aimee-robot-ws/models"
 VOSK_SOURCE=""     # e.g. "arduino@10.0.0.156:/home/arduino/aimee-robot-ws/vosk-models"

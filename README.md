@@ -109,7 +109,7 @@ Each package has its own `README.md` in `src/<package>/` with topic interfaces a
 For a fresh Arduino UNO Q, run the bootstrap script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aimeesmallbeck/AimeeCloud/main/deploy/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/aimeesmallbeck/Minnie/main/deploy/bootstrap.sh | bash
 ```
 
 This will install Docker, clone this repo, build the container, and install the systemd service.
