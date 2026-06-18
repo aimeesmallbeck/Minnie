@@ -32,7 +32,7 @@
 - Updated `src/aimee_bringup/launch/robot.launch.py` to pass new cloud params from robot YAML.
 - Updated `docker-compose.yml`:
   - Set `AIMEE_ROBOT_NAME=bob` so `robot.launch.py` loads `bob.yaml`.
-  - Added `amixer -c RC08 set PCM 80%` to the startup command so speaker volume persists across restarts.
+  - Added `amixer -c RC08 set PCM 95%` to the startup command so speaker volume persists across restarts.
 
 ### Streaming Audio Pop/Static Fix
 - Updated `src/aimee_tts/aimee_tts/tts_node.py`:
@@ -42,7 +42,8 @@
   - Preemption and shutdown now stop/clear the streaming channel.
 
 :### Speaker Volume
-- Set Rocware RC08 PCM playback volume to 80% (`-29.81 dB`).
+- Set Rocware RC08 PCM playback volume to 95% (`-12.70 dB`).
+  - Note: the RC08's PCM control has a very non-linear scale. 80% mapped to `-29.81 dB` and sounded quiet; 95% gives a much louder `-12.70 dB` while leaving a small amount of headroom.
 - Volume is restored on every container start via the updated `docker-compose.yml` command.
 
 ### Repository Configuration
@@ -74,7 +75,7 @@ CHECKPOINT.md
 ```
 
 ### Status
-> 🟢 **PROTOCOL UPDATED TO v1.5 — ROBOT RENAMED TO "Bob" — PRIMARY REMOTE SET TO Minnie.git** — Cloud bridge connects as `aimeecloud/device/Bob`, switches to session-scoped response topic, and streams gapless cloud audio. Speaker volume set to 80% and persisted in compose startup.
+> 🟢 **PROTOCOL UPDATED TO v1.5 — ROBOT RENAMED TO "Bob" — PRIMARY REMOTE SET TO Minnie.git** — Cloud bridge connects as `aimeecloud/device/Bob`, switches to session-scoped response topic, and streams gapless cloud audio. Speaker volume set to 95% (-12.70 dB) and persisted in compose startup.
 
 ---
 
